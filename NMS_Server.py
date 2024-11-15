@@ -1,31 +1,47 @@
 import socket
+import sys
 
 class NMS_Server:
-    def start_udp_server(self):
-        # Configurações do servidor
-        IP = "127.0.0.1"  # Endereço IP do servidor (pode ser 0.0.0.0 para escutar em todas as interfaces)
-        PORT = 12345      # Porta onde o servidor vai escutar
+    
+    def start_udp_server(ip, port=12345):
+        """
+        Inicia um servidor UDP genérico.
 
+        Args:
+            ip (str): Endereço IP onde o servidor será executado.
+            port (int): Porta onde o servidor irá escutar (padrão: 12345).
+        """
         # Criação do socket UDP
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-        # Vincula o socket ao endereço e à porta
-        server_socket.bind((IP, PORT))
+        try:
+            # Vincula o socket ao IP e à porta fornecidos
+            server_socket.bind((ip, port))
+            print(f"Servidor UDP escutando em {ip}:{port}...")
 
-        print(f"Servidor UDP escutando em {IP}:{PORT}...")
+            # Loop principal para receber e responder mensagens
+            while True:
+                data, client_address = server_socket.recvfrom(1024)  # Tamanho do buffer de recepção
+                print(f"Recebido de {client_address}: {data.decode()}")
 
-        # Loop principal do servidor para receber e responder a pacotes
-        while True:
-            # Recebe dados do cliente (1024 é o tamanho do buffer)
-            data, client_address = server_socket.recvfrom(1024)
-            print(f"Recebido de {client_address}: {data.decode()}")
+                # Envia uma resposta ao cliente
+                response = "Mensagem recebida!"
+                server_socket.sendto(response.encode(), client_address)
+                print(f"Resposta enviada para {client_address}")
 
-            # Responde ao cliente com uma mensagem
-            response = "Mensagem recebida!"
-            server_socket.sendto(response.encode(), client_address)
-            print(f"Resposta enviada para {client_address}")
+        except Exception as e:
+            print(f"Erro no servidor: {e}")
+        finally:
+            # Fecha o socket
+            server_socket.close()
+            print("Servidor encerrado.")
 
-        # Se quiser parar o servidor, use Ctrl+C
+
+    # Obtém o IP a partir dos argumentos
+    server_ip = sys.argv[1]
+
+    # Inicia o servidor
+    start_udp_server(server_ip)
 
     def start_tcp_server(self):# Configurações do servidor
         IP = "127.0.0.1"  # Endereço IP do servidor (pode ser 0.0.0.0 para escutar em todas as interfaces)
@@ -59,7 +75,8 @@ class NMS_Server:
             print(f"Conexão com {client_address} encerrada")
 
 if __name__ == "__main__":
-    server = NMS_Server()
-    #server.start_udp_server()
-    server.start_tcp_server()
-
+    # Verifica se um argumento IP foi passado
+    if len(sys.argv) < 2:
+        print("Uso: python servidor_udp.py <IP>")
+        sys.exit(1)
+    
