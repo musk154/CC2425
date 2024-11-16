@@ -1,58 +1,88 @@
 import socket
+import sys
 
 class NMS_Agent:
-    def start_udp_server(self):
-# Configurações do servidor (mesmo IP e porta do servidor UDP)
-        SERVER_IP = "127.0.0.1"
-        SERVER_PORT = 12345
+    def __init__(self, ip, port, protocol="UDP"):
+        """
+        Inicializa o agente.
 
-        # Criação do socket UDP
-        client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        Args:
+            ip (str): Endereço IP do servidor.
+            port (int): Porta do servidor.
+            protocol (str): Protocolo a ser usado ("UDP" ou "TCP").
+        """
+        self.server_ip = ip
+        self.server_port = port
+        self.protocol = protocol.upper()
 
-        # Mensagem que será enviada ao servidor
-        message = "Olá, servidor!"
+        if self.protocol not in ["UDP", "TCP"]:
+            raise ValueError("Protocolo inválido. Escolha 'UDP' ou 'TCP'.")
 
-        try:
-            # Envia a mensagem ao servidor
-            print(f"Enviando mensagem para {SERVER_IP}:{SERVER_PORT}...")
-            client_socket.sendto(message.encode(), (SERVER_IP, SERVER_PORT))
-            
-            # Aguardando a resposta do servidor (1024 é o tamanho do buffer)
-            data, server_address = client_socket.recvfrom(1024)
-            print(f"Recebido do servidor {server_address}: {data.decode()}")
+    def send_message(self, message):
+        """
+        Envia uma mensagem ao servidor.
 
-        finally:
-            # Fecha o socket
-            client_socket.close()
-    
-   # Configurações do servidor (IP e porta onde o servidor está escutando)
-    def start_tcp_server(self):
-        SERVER_IP = "127.0.0.1"
-        SERVER_PORT = 12346
+        Args:
+            message (str): Mensagem a ser enviada.
+        """
+        if self.protocol == "UDP":
+            self._send_udp_message(message)
+        elif self.protocol == "TCP":
+            self._send_tcp_message(message)
 
-        # Criação do socket TCP
-        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    def _send_udp_message(self, message):
+        """
+        Envia uma mensagem usando o protocolo UDP.
+        """
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp_socket:
+            try:
+                udp_socket.sendto(message.encode(), (self.server_ip, self.server_port))
+                print(f"[UDP] Mensagem enviada: {message}")
 
-        try:
-            # Conexão ao servidor
-            client_socket.connect((SERVER_IP, SERVER_PORT))
-            print(f"Conectado ao servidor {SERVER_IP}:{SERVER_PORT}")
+                # Recebe a resposta do servidor
+                response, _ = udp_socket.recvfrom(1024)
+                print(f"[UDP] Resposta recebida: {response.decode()}")
+            except Exception as e:
+                print(f"[UDP] Erro ao enviar mensagem: {e}")
 
-            # Mensagem que será enviada ao servidor
-            message = "Olá, servidor!"
-            client_socket.send(message.encode())
-            print(f"Mensagem enviada: {message}")
+    def _send_tcp_message(self, message):
+        """
+        Envia uma mensagem usando o protocolo TCP.
+        """
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp_socket:
+            try:
+                tcp_socket.connect((self.server_ip, self.server_port))
+                print(f"[TCP] Conectado ao servidor {self.server_ip}:{self.server_port}")
 
-            # Recebe a resposta do servidor
-            response = client_socket.recv(1024)  # Tamanho do buffer de recepção em bytes
-            print(f"Resposta do servidor: {response.decode()}")
+                # Envia a mensagem
+                tcp_socket.sendall(message.encode())
+                print(f"[TCP] Mensagem enviada: {message}")
 
-        finally:
-            # Fecha o socket
-            client_socket.close()
-            print("Conexão encerrada")
+                # Recebe a resposta do servidor
+                response = tcp_socket.recv(1024)
+                print(f"[TCP] Resposta recebida: {response.decode()}")
+            except Exception as e:
+                print(f"[TCP] Erro ao enviar mensagem: {e}")
+
 
 if __name__ == "__main__":
-    agent = NMS_Agent()
-    #agent.start_udp_server()
-    agent.start_tcp_server()
+    # Verifica se os argumentos necessários foram fornecidos
+    if len(sys.argv) < 4:
+        print("Uso: python agente.py <IP_SERVIDOR> <PORTA_SERVIDOR> <PROTOCOLO>")
+        sys.exit(1)
+
+    # Obtém os argumentos da linha de comando
+    server_ip = sys.argv[1]
+    server_port = int(sys.argv[2])
+    protocol = sys.argv[3]  # "UDP" ou "TCP"
+
+    # Instancia o agente
+    agent = NMS_Agent(ip=server_ip, port=server_port, protocol=protocol)
+
+    # Mensagem a ser enviada
+    while True:
+        message = input(f"Digite uma mensagem para o servidor ({protocol}): ")
+        if message.lower() == "exit":
+            print("Encerrando o agente.")
+            break
+        agent.send_message(message)
