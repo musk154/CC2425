@@ -3,13 +3,13 @@ import threading
 import sys
 
 class NMS_Server:
-    def __init__(self, ip, port):
+    def __init__(self, ip, port=12345):
         """
         Inicializa o servidor.
 
         Args:
             ip (str): Endereço IP do servidor.
-            port (int): Porta do servidor.
+            port (int): Porta do servidor (fixa).
         """
         self.ip = ip
         self.port = port
@@ -92,14 +92,14 @@ class NMS_Server:
         tcp_thread.join()
 
 if __name__ == "__main__":
-    # Verifica se os parâmetros de IP e protocolo foram passados corretamente
-    if len(sys.argv) < 3:
-        print("Uso: python servidor.py <IP> <PORTA>")
+    # Verifica se o parâmetro de IP foi passado corretamente
+    if len(sys.argv) < 2:
+        print("Uso: python servidor.py <IP>")
         sys.exit(1)
 
     ip = sys.argv[1]  # IP fornecido pelo usuário
-    port = int(sys.argv[2])  # Porta fornecida pelo usuário
+    port = 12345  # Porta fixa para UDP e TCP
 
-    # Cria o servidor com o IP e a porta fornecidos
+    # Cria o servidor com o IP fornecido e a porta fixa
     server = NMS_Server(ip, port)
     server.start_servers()
