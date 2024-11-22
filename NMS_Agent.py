@@ -3,22 +3,23 @@ import sys
 import json
 
 class NMS_Agent:
-    def __init__(self, ip, port, protocol="UDP"):
+    def __init__(self, ip, port, agent_id, protocol="UDP"):
         """
-        Inicializa o agente.
+        Initializes the agent.
 
         Args:
-            ip (str): Endereço IP do servidor.
-            port (int): Porta do servidor.
-            protocol (str): Protocolo a ser usado ("UDP" ou "TCP").
+            ip (str): Server IP address.
+            port (int): Server port.
+            agent_id (str): Unique identifier for the agent.
+            protocol (str): Protocol to use ("UDP" or "TCP").
         """
         self.server_ip = ip
         self.server_port = port
-        self.protocol = protocol.upper()
         self.agent_id = agent_id
+        self.protocol = protocol.upper()
 
         if self.protocol not in ["UDP", "TCP"]:
-            raise ValueError("Protocolo inválido. Escolha 'UDP' ou 'TCP'.")
+            raise ValueError("Invalid protocol. Choose 'UDP' or 'TCP'.")
 
     def send_ack(self):
         """
@@ -36,76 +37,55 @@ class NMS_Agent:
         elif self.protocol == "TCP":
             self._send_tcp_message(message)
 
-
-    def send_message(self, message):
-        """
-        Envia uma mensagem ao servidor.
-
-        Args:
-            message (str): Mensagem a ser enviada.
-        """
-        if self.protocol == "UDP":
-            self._send_udp_message(message)
-        elif self.protocol == "TCP":
-            self._send_tcp_message(message)
-
     def _send_udp_message(self, message):
         """
-        Envia uma mensagem usando o protocolo UDP.
+        Sends a message using the UDP protocol.
         """
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp_socket:
             try:
                 udp_socket.sendto(message.encode(), (self.server_ip, self.server_port))
-                print(f"[UDP] Mensagem enviada: {message}")
+                print(f"[UDP] ACK sent: {message}")
 
-                # Recebe a resposta do servidor
+                # Receive the server's response
                 response, _ = udp_socket.recvfrom(1024)
-                print(f"[UDP] Resposta recebida: {response.decode()}")
+                print(f"[UDP] Response received: {response.decode()}")
             except Exception as e:
-                print(f"[UDP] Erro ao enviar mensagem: {e}")
+                print(f"[UDP] Error sending ACK: {e}")
 
     def _send_tcp_message(self, message):
         """
-        Envia uma mensagem usando o protocolo TCP.
+        Sends a message using the TCP protocol.
         """
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp_socket:
             try:
                 tcp_socket.connect((self.server_ip, self.server_port))
-                print(f"[TCP] Conectado ao servidor {self.server_ip}:{self.server_port}")
+                print(f"[TCP] Connected to server {self.server_ip}:{self.server_port}")
 
-                # Envia a mensagem
+                # Send the message
                 tcp_socket.sendall(message.encode())
-                print(f"[TCP] Mensagem enviada: {message}")
+                print(f"[TCP] ACK sent: {message}")
 
-                # Recebe a resposta do servidor
+                # Receive the server's response
                 response = tcp_socket.recv(1024)
-                print(f"[TCP] Resposta recebida: {response.decode()}")
+                print(f"[TCP] Response received: {response.decode()}")
             except Exception as e:
-                print(f"[TCP] Erro ao enviar mensagem: {e}")
-
+                print(f"[TCP] Error sending ACK: {e}")
 
 if __name__ == "__main__":
-    # Verifica se os argumentos necessários foram fornecidos
+    # Ensure necessary arguments are provided
     if len(sys.argv) < 4:
-        print("Uso: python agente.py <IP_SERVIDOR> <PORTA_SERVIDOR> <PROTOCOLO>")
+        print("Usage: python NMS_Agent.py <SERVER_IP> <SERVER_PORT> <AGENT_ID> [<PROTOCOL>]")
         sys.exit(1)
 
-    # Obtém os argumentos da linha de comando
+    # Get arguments from command line
     server_ip = sys.argv[1]
     server_port = int(sys.argv[2])
-    protocol = sys.argv[4]  # "UDP" ou "TCP"
     agent_id = sys.argv[3]
-    
-    # Instancia o agente
+    protocol = sys.argv[4] if len(sys.argv) > 4 else "TCP"  # Default protocol is TCP
+
+    # Initialize the agent
     agent = NMS_Agent(ip=server_ip, port=server_port, agent_id=agent_id, protocol=protocol)
 
-    # Mensagem a ser enviada
-    while True:
-        message = input(f"Digite uma mensagem para o servidor ({protocol}): ")
-        if message.lower() == "exit":
-            print("Encerrando o agente.")
-            break
-        agent.send_message(message)
-
+    # Send ACK to the server
     print(f"Agent {agent_id} sending ACK to {server_ip}:{server_port} using {protocol}...")
     agent.send_ack()
