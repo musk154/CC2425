@@ -77,6 +77,50 @@ class NMS_Server:
         """
         self.ip = ip
         self.port = port
+        self.registered_agents = {} # Dicionário para armazenar os agentes registrados
+
+
+    def handle_agent_registration(self, client_socket, client_address, message):
+        try:
+            message = json.loads(message)
+            if message.get("type") == "ACK" and "agent_id" in message:
+                agent_id = message["agent_id"]
+                self.registered_agents[agent_id] = {
+                    "address": client_address,
+                    "socket": client_socket
+                }
+                print(f"Agent {agent_id} registered from {client_address}")
+                # Send confirmation to the agent
+                client_socket.send("ACK received. Registration successful.".encode())
+            else:
+                print(f"Invalid registration message from {client_address}: {message}")
+        except Exception as e:
+            print(f"Error handling registration from {client_address}: {e}")
+
+
+    def send_task_to_agent(self, agent_id, task):
+        agent = self.registered_agents.get(agent_id)
+        if agent:
+            try:
+                agent["socket"].send(json.dumps(task).encode())
+                print(f"Task sent to agent {agent_id}")
+            except Exception as e:
+                print(f"Error sending task to agent {agent_id}: {e}")
+        else:
+            print(f"Agent {agent_id} not found.")
+
+
+    def handle_tcp_client(self, client_socket, client_address):
+        try:
+            data = client_socket.recv(1024).decode()
+            print(f"[TCP] Received from {client_address}: {data}")
+            self.handle_agent_registration(client_socket, client_address, data)
+        except Exception as e:
+            print(f"[TCP] Error handling client {client_address}: {e}")
+        finally:
+            client_socket.close()
+
+
 
     def start_udp_server(self):
         """
@@ -173,3 +217,10 @@ if __name__ == "__main__":
     # Cria o servidor com o IP fornecido e a porta fixa
     server = NMS_Server(ip, port)
     server.start_servers()
+    
+    print("Waiting for agent registrations...")
+    # Example: Assign tasks to registered agents
+    for agent_id, agent_info in server.registered_agents.items():
+        tasks = parser.get_tasks_for_agent(agent_id)
+        for task in tasks:
+            server.send_task_to_agent(agent_id, task)

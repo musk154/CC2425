@@ -1,5 +1,6 @@
 import socket
 import sys
+import json
 
 class NMS_Agent:
     def __init__(self, ip, port, protocol="UDP"):
@@ -14,9 +15,27 @@ class NMS_Agent:
         self.server_ip = ip
         self.server_port = port
         self.protocol = protocol.upper()
+        self.agent_id = agent_id
 
         if self.protocol not in ["UDP", "TCP"]:
             raise ValueError("Protocolo inválido. Escolha 'UDP' ou 'TCP'.")
+
+    def send_ack(self):
+        """
+        Sends an ACK message to the server.
+        """
+        ack_message = {
+            "type": "ACK",
+            "agent_id": self.agent_id
+        }
+
+        message = json.dumps(ack_message)
+
+        if self.protocol == "UDP":
+            self._send_udp_message(message)
+        elif self.protocol == "TCP":
+            self._send_tcp_message(message)
+
 
     def send_message(self, message):
         """
@@ -74,10 +93,11 @@ if __name__ == "__main__":
     # Obtém os argumentos da linha de comando
     server_ip = sys.argv[1]
     server_port = int(sys.argv[2])
-    protocol = sys.argv[3]  # "UDP" ou "TCP"
-
+    protocol = sys.argv[4]  # "UDP" ou "TCP"
+    agent_id = sys.argv[3]
+    
     # Instancia o agente
-    agent = NMS_Agent(ip=server_ip, port=server_port, protocol=protocol)
+    agent = NMS_Agent(ip=server_ip, port=server_port, agent_id=agent_id, protocol=protocol)
 
     # Mensagem a ser enviada
     while True:
@@ -86,3 +106,6 @@ if __name__ == "__main__":
             print("Encerrando o agente.")
             break
         agent.send_message(message)
+
+    print(f"Agent {agent_id} sending ACK to {server_ip}:{server_port} using {protocol}...")
+    agent.send_ack()
