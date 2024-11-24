@@ -135,6 +135,7 @@ class NMS_Server:
     def handle_agent_registration(self, client_socket, client_address, message):
         try:
             message = json.loads(message)
+            
             if message.get("type") == "ACK" and "agent_id" in message:
                 agent_id = message["agent_id"]
                 self.registered_agents[agent_id] = {
@@ -144,6 +145,8 @@ class NMS_Server:
                 print(f"Agent {agent_id} registered from {client_address}")
                 # Send confirmation to the agent
                 client_socket.send("ACK received. Registration successful.".encode())
+            elif message.get("type") == "METRICS":
+                self.handle_metrics(agent_id, message["data"])
             else:
                 print(f"Invalid registration message from {client_address}: {message}")
         except Exception as e:
@@ -161,7 +164,17 @@ class NMS_Server:
         finally:
             client_socket.close()
 
+    def handle_metrics(self, agent_id, metrics):
+        """
+        Handle incoming metrics from an agent.
 
+        Args:
+            agent_id (str): ID of the agent.
+            metrics (dict): Metrics data.
+        """
+        print(f"[Server] Metrics received from {agent_id}: {metrics}")
+        
+    
 
     def start_udp_server(self):
         """
