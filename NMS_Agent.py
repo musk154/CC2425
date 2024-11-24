@@ -70,6 +70,17 @@ class NMS_Agent:
                 print(f"[TCP] Response received: {response.decode()}")
             except Exception as e:
                 print(f"[TCP] Error sending ACK: {e}")
+                
+                while True:
+                    response = tcp_socket.recv(1024).decode()
+                    if not response:
+                        break
+                    print(f"[TCP] Response from server: {response}")
+                    response_data = json.loads(response)
+                    if response_data.get("type") == "TASKS":
+                        print(f"[Agent {self.agent_id}] Tasks received: {response_data['tasks']}")
+            except Exception as e:
+                print(f"[TCP] Error communicating with server: {e}")
 
 if __name__ == "__main__":
     # Ensure necessary arguments are provided

@@ -25,6 +25,23 @@ class TaskJSONParser:
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON format: {e}")
 
+    def get_tasks_for_agent(self, agent_id):
+        
+        """
+        Get tasks assigned to a specific agent.
+        
+        Args:
+            agent_id (str): ID of the agent.
+
+        Returns:
+            list: A list of tasks assigned to the agent.
+        """
+        tasks = []
+        for device in self.get_devices():
+            if device.get("assigned_to") == agent_id:
+                tasks.append(device)
+        return tasks
+
     def get_task_id(self):
         """Get the task ID."""
         return self.data.get("task", {}).get("task_id")
@@ -79,6 +96,41 @@ class NMS_Server:
         self.port = port
         self.registered_agents = {} # Dicionário para armazenar os agentes registrados
 
+    def load_tasks(self, parser):
+        """
+        Load tasks for each agent from the JSON parser.
+        """
+        for device in parser.get_devices():
+            agent_id = device.get("assigned_to")
+            if agent_id:
+                if agent_id not in self.tasks:
+                    self.tasks[agent_id] = []
+                self.tasks[agent_id].append(device)
+                
+    def send_task_to_agent(self, agent_id):
+        """
+        Send tasks to a specific agent.
+
+        Args:
+            agent_id (str): ID of the agent.
+        """
+        agent = self.registered_agents.get(agent_id)
+        if agent and agent_id in self.tasks:
+            try:
+                tasks = self.tasks[agent_id]
+                message = json.dumps({"type": "TASKS", "tasks": tasks})
+
+                # Send the tasks via the appropriate protocol
+                if "socket" in agent:
+                    agent["socket"].send(message.encode())
+                    print(f"Tasks sent to {agent_id}")
+                else:
+                    print(f"Cannot send tasks to {agent_id}: Socket not found.")
+            except Exception as e:
+                print(f"Error sending tasks to {agent_id}: {e}")
+        else:
+            print(f"No tasks or agent found for {agent_id}.")
+
 
     def handle_agent_registration(self, client_socket, client_address, message):
         try:
@@ -97,17 +149,6 @@ class NMS_Server:
         except Exception as e:
             print(f"Error handling registration from {client_address}: {e}")
 
-
-    def send_task_to_agent(self, agent_id, task):
-        agent = self.registered_agents.get(agent_id)
-        if agent:
-            try:
-                agent["socket"].send(json.dumps(task).encode())
-                print(f"Task sent to agent {agent_id}")
-            except Exception as e:
-                print(f"Error sending task to agent {agent_id}: {e}")
-        else:
-            print(f"Agent {agent_id} not found.")
 
 
     def handle_tcp_client(self, client_socket, client_address):
@@ -217,6 +258,9 @@ if __name__ == "__main__":
     # Cria o servidor com o IP fornecido e a porta fixa
     server = NMS_Server(ip, port)
     server.start_servers()
+    
+    # Load tasks for each agent from the JSON parser
+    server.load_tasks(parser)
     
     print("Waiting for agent registrations...")
     # Example: Assign tasks to registered agents
