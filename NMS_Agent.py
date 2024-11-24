@@ -93,18 +93,47 @@ class NMS_Agent:
             ip (str): Server IP address.
             port (int): Server port.
             agent_id (str): Unique identifier for the agent.
-            protocol (str): Protocol to use ("UDP" or "TCP").
+            protocol (str): Protocol to use ("UDP").
         """
         self.server_ip = ip
         self.server_port = port
         self.agent_id = agent_id
         self.protocol = protocol.upper()
 
-        if self.protocol not in ["UDP", "TCP"]:
-            raise ValueError("Invalid protocol. Choose 'UDP' or 'TCP'.")
-        
-        
-        
+        if self.protocol != "UDP":
+            raise ValueError("Only UDP protocol is supported in this implementation.")
+
+        self.tasks = []  # Tasks assigned to the agent
+
+    def send_ack(self):
+        """
+        Sends an ACK message to the server and waits for a task response.
+        """
+        ack_message = {
+            "type": "ACK",
+            "agent_id": self.agent_id
+        }
+
+        message = json.dumps(ack_message)
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp_socket:
+            try:
+                # Send ACK to the server
+                udp_socket.sendto(message.encode(), (self.server_ip, self.server_port))
+                print(f"[UDP] ACK sent to server: {message}")
+
+                # Wait for a response from the server (tasks)
+                udp_socket.settimeout(5.0)  # Set a timeout for receiving
+                response, _ = udp_socket.recvfrom(4096)
+                response_data = json.loads(response.decode())
+                if response_data.get("type") == "TASKS":
+                    print(f"[UDP] Tasks received: {response_data['tasks']}")
+                    self.set_tasks(response_data["tasks"])
+                    self.start_metric_collection(udp_socket)
+            except socket.timeout:
+                print("[UDP] No response from server. Retrying...")
+            except Exception as e:
+                print(f"[UDP] Error communicating with server: {e}")
+
     def set_tasks(self, tasks):
         """
         Set the tasks assigned to this agent.
@@ -114,7 +143,7 @@ class NMS_Agent:
         """
         self.tasks = tasks
 
-    def start_metric_collection(self):
+    def start_metric_collection(self, udp_socket):
         """
         Start periodic metric collection for assigned tasks.
         """
@@ -126,11 +155,11 @@ class NMS_Agent:
 
             threading.Thread(
                 target=self._collect_metrics_periodically,
-                args=(device_id, metrics, link_metrics, frequency),
+                args=(device_id, metrics, link_metrics, frequency, udp_socket),
                 daemon=True
             ).start()
 
-    def _collect_metrics_periodically(self, device_id, metrics, link_metrics, frequency):
+    def _collect_metrics_periodically(self, device_id, metrics, link_metrics, frequency, udp_socket):
         """
         Collect metrics periodically and send results to the server.
 
@@ -139,9 +168,10 @@ class NMS_Agent:
             metrics (dict): Device metrics to collect.
             link_metrics (dict): Link metrics to collect.
             frequency (int): Frequency in seconds.
+            udp_socket (socket): UDP socket for communication.
         """
         while True:
-            results = {"device_id": device_id, "metrics": {}, "link_metrics": {}}
+            results = {"device_id": device_id, "metrics": {}, "link_metrics": {}, "agent_id": self.agent_id}
 
             # Collect device metrics
             if metrics.get("cpu_usage"):
@@ -152,37 +182,28 @@ class NMS_Agent:
             # Collect link metrics
             for metric, params in link_metrics.items():
                 if metric == "latency":
-                    results["link_metrics"]["latency"] = self.metric_collector.ping(
-                        params["destination"], params["packet_count"]
-                    )
+                    results["link_metrics"]["latency"] = self._simulate_latency(params["destination"])
                 elif metric == "bandwidth":
-                    results["link_metrics"]["bandwidth"] = self.metric_collector.iperf(
-                        params["server_address"],
-                        params["role"],
-                        params["duration"],
-                        params["transport_type"]
-                    )
+                    results["link_metrics"]["bandwidth"] = self._simulate_bandwidth(params)
 
             # Send metrics to the server
-            self._send_metrics_to_server(results)
-
+            self._send_metrics_to_server(results, udp_socket)
             time.sleep(frequency)
 
-    def _send_metrics_to_server(self, results):
+    def _send_metrics_to_server(self, results, udp_socket):
         """
         Send collected metrics to the server.
 
         Args:
             results (dict): Metrics to send.
+            udp_socket (socket): UDP socket for communication.
         """
         try:
             message = json.dumps({"type": "METRICS", "data": results})
-            if self.protocol == "TCP":
-                self._send_tcp_message(message)
-            elif self.protocol == "UDP":
-                self._send_udp_message(message)
+            udp_socket.sendto(message.encode(), (self.server_ip, self.server_port))
+            print(f"[UDP] Metrics sent to server: {results}")
         except Exception as e:
-            print(f"[Agent {self.agent_id}] Error sending metrics: {e}")
+            print(f"[UDP] Error sending metrics: {e}")
 
     def _get_cpu_usage(self):
         """Simulate CPU usage collection."""
@@ -192,82 +213,29 @@ class NMS_Agent:
         """Simulate RAM usage collection."""
         return 60  # Placeholder value
 
-    def send_ack(self):
-        """
-        Sends an ACK message to the server.
-        """
-        ack_message = {
-            "type": "ACK",
-            "agent_id": self.agent_id
-        }
+    def _simulate_latency(self, destination):
+        """Simulate latency measurement (placeholder)."""
+        return {"latency": 10}  # Simulated value
 
-        message = json.dumps(ack_message)
+    def _simulate_bandwidth(self, params):
+        """Simulate bandwidth measurement (placeholder)."""
+        return {"bandwidth": 100}  # Simulated value
 
-        if self.protocol == "UDP":
-            self._send_udp_message(message)
-        elif self.protocol == "TCP":
-            self._send_tcp_message(message)
-
-    def _send_udp_message(self, message):
-        """
-        Sends a message using the UDP protocol.
-        """
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp_socket:
-            try:
-                udp_socket.sendto(message.encode(), (self.server_ip, self.server_port))
-                print(f"[UDP] ACK sent: {message}")
-
-                # Receive the server's response
-                response, _ = udp_socket.recvfrom(1024)
-                print(f"[UDP] Response received: {response.decode()}")
-            except Exception as e:
-                print(f"[UDP] Error sending ACK: {e}")
-
-    def _send_tcp_message(self, message):
-        """
-        Sends a message using the TCP protocol.
-        """
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp_socket:
-            try:
-                tcp_socket.connect((self.server_ip, self.server_port))
-                print(f"[TCP] Connected to server {self.server_ip}:{self.server_port}")
-
-                # Send the message
-                tcp_socket.sendall(message.encode())
-                print(f"[TCP] ACK sent: {message}")
-
-                # Receive the server's response
-                response = tcp_socket.recv(1024)
-                print(f"[TCP] Response received: {response.decode()}")
-            except Exception as e:
-                print(f"[TCP] Error sending ACK: {e}")
-                
-                while True:
-                    response = tcp_socket.recv(1024).decode()
-                    if not response:
-                        break
-                    print(f"[TCP] Response from server: {response}")
-                    response_data = json.loads(response)
-                    if response_data.get("type") == "TASKS":
-                        print(f"[Agent {self.agent_id}] Tasks received: {response_data['tasks']}")
-            except Exception as e:
-                print(f"[TCP] Error communicating with server: {e}")
 
 if __name__ == "__main__":
     # Ensure necessary arguments are provided
     if len(sys.argv) < 4:
-        print("Usage: python NMS_Agent.py <SERVER_IP> <SERVER_PORT> <AGENT_ID> [<PROTOCOL>]")
+        print("Usage: python NMS_Agent.py <SERVER_IP> <SERVER_PORT> <AGENT_ID>")
         sys.exit(1)
 
     # Get arguments from command line
     server_ip = sys.argv[1]
     server_port = int(sys.argv[2])
     agent_id = sys.argv[3]
-    protocol = sys.argv[4] if len(sys.argv) > 4 else "TCP"  # Default protocol is TCP
 
     # Initialize the agent
-    agent = NMS_Agent(ip=server_ip, port=server_port, agent_id=agent_id, protocol=protocol)
+    agent = NMS_Agent(ip=server_ip, port=server_port, agent_id=agent_id)
 
-    # Send ACK to the server
-    print(f"Agent {agent_id} sending ACK to {server_ip}:{server_port} using {protocol}...")
+    # Send ACK to the server and wait for tasks
+    print(f"Agent {agent_id} starting and sending ACK to {server_ip}:{server_port}...")
     agent.send_ack()

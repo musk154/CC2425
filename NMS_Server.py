@@ -131,11 +131,13 @@ class NMS_Server:
         else:
             print(f"No tasks or agent found for {agent_id}.")
 
-
     def handle_agent_registration(self, client_socket, client_address, message):
+        """
+        Handle registration of an agent and send tasks if available.
+        """
         try:
             message = json.loads(message)
-            
+
             if message.get("type") == "ACK" and "agent_id" in message:
                 agent_id = message["agent_id"]
                 self.registered_agents[agent_id] = {
@@ -143,14 +145,24 @@ class NMS_Server:
                     "socket": client_socket
                 }
                 print(f"Agent {agent_id} registered from {client_address}")
+
                 # Send confirmation to the agent
                 client_socket.send("ACK received. Registration successful.".encode())
+
+                # Distribute tasks to the registered agent
+                tasks = parser.get_tasks_for_agent(agent_id)
+                if tasks:
+                    task_message = json.dumps({"type": "TASKS", "tasks": tasks})
+                    client_socket.send(task_message.encode())
+                    print(f"Tasks sent to agent {agent_id}: {tasks}")
             elif message.get("type") == "METRICS":
+                agent_id = message.get("agent_id")
                 self.handle_metrics(agent_id, message["data"])
             else:
-                print(f"Invalid registration message from {client_address}: {message}")
+                print(f"Invalid message from {client_address}: {message}")
         except Exception as e:
             print(f"Error handling registration from {client_address}: {e}")
+
 
 
 
