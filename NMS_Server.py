@@ -1,87 +1,9 @@
 import socket
 import threading
 import sys
+from task_parser import TaskJSONParser
 import json
-
-class TaskJSONParser:
-    def __init__(self, file_path):
-        """
-        Initialize the parser and load the JSON file.
-        :param file_path: Path to the JSON file.
-        """
-        self.file_path = file_path
-        self.data = self._load_json()
-
-    def _load_json(self):
-        """
-        Load JSON data from the file.
-        :return: Parsed JSON data as a Python object.
-        """
-        try:
-            with open(self.file_path, 'r') as file:
-                return json.load(file)
-        except FileNotFoundError:
-            raise FileNotFoundError(f"File not found: {self.file_path}")
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON format: {e}")
-
-    def get_tasks_for_agent(self, agent_id):
-        
-        """
-        Get tasks assigned to a specific agent.
-        
-        Args:
-            agent_id (str): ID of the agent.
-
-        Returns:
-            list: A list of tasks assigned to the agent.
-        """
-        tasks = []
-        for device in self.get_devices():
-            if device.get("assigned_to") == agent_id:
-                tasks.append(device)
-        return tasks
-
-    def get_task_id(self):
-        """Get the task ID."""
-        return self.data.get("task", {}).get("task_id")
-
-    def get_devices(self):
-        """Get the list of devices."""
-        return self.data.get("task", {}).get("devices", [])
-
-    def get_device_metrics(self, device_id):
-        """
-        Get metrics for a specific device.
-        :param device_id: The ID of the device.
-        :return: Metrics of the device or None if not found.
-        """
-        devices = self.get_devices()
-        for device in devices:
-            if device.get("device_id") == device_id:
-                return device.get("device_metrics")
-        return None
-
-    def update_device_alert_conditions(self, device_id, new_conditions):
-        """
-        Update alert flow conditions for a specific device.
-        :param device_id: The ID of the device.
-        :param new_conditions: A dictionary with new alert flow conditions.
-        """
-        devices = self.get_devices()
-        for device in devices:
-            if device.get("device_id") == device_id:
-                if "link_metrics" in device and "alertflow_conditions" in device["link_metrics"]:
-                    device["link_metrics"]["alertflow_conditions"].update(new_conditions)
-
-    def save(self, output_file=None):
-        """
-        Save the updated JSON to a file.
-        :param output_file: The file to save the data. If None, overwrites the original file.
-        """
-        save_path = output_file or self.file_path
-        with open(save_path, 'w') as file:
-            json.dump(self.data, file, indent=4)
+import struct
 
 class NMS_Server:
     def __init__(self, ip, port=12345):
@@ -131,37 +53,26 @@ class NMS_Server:
         else:
             print(f"No tasks or agent found for {agent_id}.")
 
-    def handle_agent_registration(self, client_socket, client_address, message):
+    def handle_agent_registration(self, client_address, agent_id):
         """
-        Handle registration of an agent and send tasks if available.
+        Handle registration of an agent.
+        Args:
+            client_address (tuple): Address of the agent.
+            agent_id (str): Unique identifier for the agent.
         """
         try:
-            message = json.loads(message)
+            # Register the agent
+            self.registered_agents[agent_id] = {"address": client_address}
+            print(f"Agent {agent_id} registered from {client_address}")
 
-            if message.get("type") == "ACK" and "agent_id" in message:
-                agent_id = message["agent_id"]
-                self.registered_agents[agent_id] = {
-                    "address": client_address,
-                    "socket": client_socket
-                }
-                print(f"Agent {agent_id} registered from {client_address}")
-
-                # Send confirmation to the agent
-                client_socket.send("ACK received. Registration successful.".encode())
-
-                # Distribute tasks to the registered agent
-                tasks = parser.get_tasks_for_agent(agent_id)
-                if tasks:
-                    task_message = json.dumps({"type": "TASKS", "tasks": tasks})
-                    client_socket.send(task_message.encode())
-                    print(f"Tasks sent to agent {agent_id}: {tasks}")
-            elif message.get("type") == "METRICS":
-                agent_id = message.get("agent_id")
-                self.handle_metrics(agent_id, message["data"])
-            else:
-                print(f"Invalid message from {client_address}: {message}")
+            # Send confirmation back to the agent
+            tasks = [{"task_id": 1}, {"task_id": 2}, {"task_id": 3}]  # Example tasks
+            task_message = struct.pack("I", len(tasks))  # Pack number of tasks
+            udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            udp_socket.sendto(task_message, client_address)
+            print(f"Tasks sent to agent {agent_id}: {tasks}")
         except Exception as e:
-            print(f"Error handling registration from {client_address}: {e}")
+            print(f"Error handling registration for {agent_id} from {client_address}: {e}")
 
 
 
@@ -190,25 +101,31 @@ class NMS_Server:
 
     def start_udp_server(self):
         """
-        Inicia o servidor UDP.
+        Start the UDP server to handle incoming messages.
         """
         udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
             udp_socket.bind((self.ip, self.port))
-            print(f"[UDP] Servidor escutando em {self.ip}:{self.port}...")
+            print(f"[UDP] Server listening on {self.ip}:{self.port}...")
 
             while True:
                 data, client_address = udp_socket.recvfrom(1024)
-                print(f"[UDP] Recebido de {client_address}: {data.decode()}")
 
-                response = "Mensagem recebida (UDP)!"
-                udp_socket.sendto(response.encode(), client_address)
-                print(f"[UDP] Resposta enviada para {client_address}")
+                # Decode binary data
+                message_type, agent_id = struct.unpack("4s32s", data[:36])
+                message_type = message_type.decode().strip('\x00')
+                agent_id = agent_id.decode().strip('\x00')
+
+                print(f"[UDP] Received message type {message_type} from {agent_id} at {client_address}")
+
+                if message_type == "ACK":
+                    self.handle_agent_registration(client_address, agent_id)
         except Exception as e:
-            print(f"[UDP] Erro no servidor: {e}")
+            print(f"[UDP] Server error: {e}")
         finally:
             udp_socket.close()
-            print("[UDP] Servidor encerrado.")
+            print("[UDP] Server closed.")
+
 
     def handle_tcp_client(self, client_socket, client_address):
         """
