@@ -1,7 +1,6 @@
 import socket
 import sys
-import subprocess
-import json
+import struct
 import time
 import threading
 from metrics_collector import MetricCollector
@@ -29,30 +28,27 @@ class NMS_Agent:
 
         self.tasks = []  # Tasks assigned to the agent
 
+
     def send_ack(self):
         """
         Sends an ACK message to the server and waits for a task response.
         """
-        ack_message = {
-            "type": "ACK",
-            "agent_id": self.agent_id
-        }
+        message_type = b"ACK"  # Fixed size, 4 bytes
+        agent_id = self.agent_id.encode().ljust(32, b'\x00')  # 32-byte agent ID
 
-        message = json.dumps(ack_message)
+        message = struct.pack("4s32s", message_type, agent_id)
+
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp_socket:
             try:
-                # Send ACK to the server
-                udp_socket.sendto(message.encode(), (self.server_ip, self.server_port))
-                print(f"[UDP] ACK sent to server: {message}")
+                udp_socket.sendto(message, (self.server_ip, self.server_port))
+                print(f"[UDP] Binary ACK sent to server.")
 
-                # Wait for a response from the server (tasks)
                 udp_socket.settimeout(5.0)  # Set a timeout for receiving
                 response, _ = udp_socket.recvfrom(4096)
-                response_data = json.loads(response.decode())
-                if response_data.get("type") == "TASKS":
-                    print(f"[UDP] Tasks received: {response_data['tasks']}")
-                    self.set_tasks(response_data["tasks"])
-                    self.start_metric_collection(udp_socket)
+
+                # Decode binary response
+                task_count = struct.unpack("I", response[:4])[0]  # Assuming the first 4 bytes are the task count
+                print(f"[UDP] Received task count from server: {task_count}")
             except socket.timeout:
                 print("[UDP] No response from server. Retrying...")
             except Exception as e:
@@ -114,6 +110,7 @@ class NMS_Agent:
             self._send_metrics_to_server(results, udp_socket)
             time.sleep(frequency)
 
+    
     def _send_metrics_to_server(self, results, udp_socket):
         """
         Send collected metrics to the server.
@@ -123,11 +120,16 @@ class NMS_Agent:
             udp_socket (socket): UDP socket for communication.
         """
         try:
-            message = json.dumps({"type": "METRICS", "data": results})
-            udp_socket.sendto(message.encode(), (self.server_ip, self.server_port))
-            print(f"[UDP] Metrics sent to server: {results}")
+            # Assume metrics dictionary contains "cpu_usage" and "ram_usage"
+            cpu_usage = results["metrics"].get("cpu_usage", 0)
+            ram_usage = results["metrics"].get("ram_usage", 0)
+
+            message = struct.pack("4sff", b"METR", cpu_usage, ram_usage)
+            udp_socket.sendto(message, (self.server_ip, self.server_port))
+            print(f"[UDP] Binary metrics sent to server: CPU={cpu_usage}, RAM={ram_usage}")
         except Exception as e:
             print(f"[UDP] Error sending metrics: {e}")
+
 
     def _get_cpu_usage(self):
         """Simulate CPU usage collection."""
