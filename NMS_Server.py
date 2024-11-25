@@ -60,21 +60,30 @@ class NMS_Server:
         agent = self.registered_agents.get(agent_id)
         if agent and agent_id in self.tasks:
             try:
-                # Retrieve tasks for this agent
-                tasks = self.tasks[agent_id]
+                # Filter and format tasks to include only relevant data
+                tasks_to_send = []
+                for task in self.tasks[agent_id]:
+                    filtered_task = {
+                        "device_id": task["device_id"],
+                        "link_metrics": task.get("link_metrics", {})  # Include only link_metrics
+                    }
+                    tasks_to_send.append(filtered_task)
+
                 # Convert tasks to JSON and encode to binary
-                message = json.dumps({"type": "TASKS", "tasks": tasks}).encode()
+                message = json.dumps({"type": "TASKS", "tasks": tasks_to_send}).encode()
 
                 # Send the tasks via UDP to the registered agent's address
                 client_address = agent["address"]
                 udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 udp_socket.sendto(message, client_address)
 
-                print(f"Tasks sent to agent {agent_id}: {tasks}")
+                print(f"Tasks sent to agent {agent_id}: {tasks_to_send}")
             except Exception as e:
                 print(f"Error sending tasks to {agent_id}: {e}")
         else:
             print(f"No tasks or agent found for {agent_id}.")
+
+
 
 
     def handle_agent_registration(self, client_address, agent_id):
@@ -232,11 +241,7 @@ if __name__ == "__main__":
     server = NMS_Server(ip, port)
     
     # Load tasks for each agent from the JSON parser
-    server.load_tasks(task_parser)
-    # Debugging: Check loaded tasks
-    print(f"Loaded tasks: {server.tasks}")
-    
-    
+    server.load_tasks(task_parser)    
     server.start_servers()
     
     
