@@ -23,21 +23,20 @@ class TaskJSONParser:
             raise ValueError(f"Invalid JSON format: {e}")
 
     def get_tasks_for_agent(self, agent_id):
-        
         """
-        Get tasks assigned to a specific agent.
-        
+        Get all tasks assigned to a specific agent.
+
         Args:
             agent_id (str): ID of the agent.
 
         Returns:
-            list: A list of tasks assigned to the agent.
+            list: List of tasks assigned to the agent.
         """
-        tasks = []
-        for device in self.get_devices():
-            if device.get("assigned_to") == agent_id:
-                tasks.append(device)
-        return tasks
+        return [
+            device for device in self.data["task"]["devices"]
+            if device.get("assigned_to") == agent_id
+        ]
+
 
     def get_task_id(self):
         """Get the task ID."""

@@ -5,6 +5,7 @@ from task_parser import TaskJSONParser
 import json
 import struct
 
+
 class NMS_Server:
     def __init__(self, ip, port=12345):
         """
@@ -17,17 +18,37 @@ class NMS_Server:
         self.ip = ip
         self.port = port
         self.registered_agents = {} # Dicionário para armazenar os agentes registrados
+        self.tasks = {}  # Ensure this attribute is initialized
+        self.task_parser = None  # Optional: parser for task files
+
 
     def load_tasks(self, parser):
         """
-        Load tasks for each agent from the JSON parser.
+        Load tasks using the TaskJSONParser and assign them to agents.
+
+        Args:
+            parser (TaskJSONParser): Instance of TaskJSONParser.
         """
-        for device in parser.get_devices():
-            agent_id = device.get("assigned_to")
-            if agent_id:
-                if agent_id not in self.tasks:
-                    self.tasks[agent_id] = []
-                self.tasks[agent_id].append(device)
+        try:
+            print("Loading tasks from parser...")
+            
+            # Initialize the tasks dictionary
+            self.tasks = {}
+
+            # Use the parser to get devices and assign tasks to agents
+            for device in parser.get_devices():
+                assigned_to = device.get("assigned_to")
+                if assigned_to:
+                    if assigned_to not in self.tasks:
+                        self.tasks[assigned_to] = []
+                    self.tasks[assigned_to].append(device)
+
+            # Debug: Print loaded tasks
+            print(f"Tasks loaded successfully: {self.tasks}")
+        except Exception as e:
+            print(f"Error loading tasks: {e}")
+
+
                 
     def send_task_to_agent(self, agent_id):
         """
@@ -39,40 +60,54 @@ class NMS_Server:
         agent = self.registered_agents.get(agent_id)
         if agent and agent_id in self.tasks:
             try:
+                # Retrieve tasks for this agent
                 tasks = self.tasks[agent_id]
-                message = json.dumps({"type": "TASKS", "tasks": tasks})
+                # Convert tasks to JSON and encode to binary
+                message = json.dumps({"type": "TASKS", "tasks": tasks}).encode()
 
-                # Send the tasks via the appropriate protocol
-                if "socket" in agent:
-                    agent["socket"].send(message.encode())
-                    print(f"Tasks sent to {agent_id}")
-                else:
-                    print(f"Cannot send tasks to {agent_id}: Socket not found.")
+                # Send the tasks via UDP to the registered agent's address
+                client_address = agent["address"]
+                udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                udp_socket.sendto(message, client_address)
+
+                print(f"Tasks sent to agent {agent_id}: {tasks}")
             except Exception as e:
                 print(f"Error sending tasks to {agent_id}: {e}")
         else:
             print(f"No tasks or agent found for {agent_id}.")
 
+
     def handle_agent_registration(self, client_address, agent_id):
         """
         Handle registration of an agent.
+
         Args:
             client_address (tuple): Address of the agent.
             agent_id (str): Unique identifier for the agent.
         """
         try:
+            print(f"Agent registration attempt: {agent_id} from {client_address}")
+            print(f"Tasks available: {self.tasks}")
+
+            if not agent_id:
+                raise ValueError("Agent ID is missing.")
+
             # Register the agent
             self.registered_agents[agent_id] = {"address": client_address}
-            print(f"Agent {agent_id} registered from {client_address}")
+            print(f"Registered agents: {self.registered_agents}")
 
-            # Send confirmation back to the agent
-            tasks = [{"task_id": 1}, {"task_id": 2}, {"task_id": 3}]  # Example tasks
-            task_message = struct.pack("I", len(tasks))  # Pack number of tasks
-            udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            udp_socket.sendto(task_message, client_address)
-            print(f"Tasks sent to agent {agent_id}: {tasks}")
+            # Check if tasks exist for the registered agent
+            print(f"Tasks for agent {agent_id}: {self.tasks.get(agent_id, 'No tasks found')}")
+
+            # Send tasks to the agent
+            if agent_id in self.tasks:
+                print(f"Sending tasks to agent {agent_id}")
+                self.send_task_to_agent(agent_id)
+            else:
+                print(f"No tasks assigned to agent {agent_id}.")
         except Exception as e:
-            print(f"Error handling registration for {agent_id} from {client_address}: {e}")
+            print(f"Error in handle_agent_registration: {e}")
+
 
 
 
@@ -185,28 +220,37 @@ class NMS_Server:
 if __name__ == "__main__":
     #parse no ficheiro json
     
-    parser = TaskJSONParser("tarefa01.json")
-    task_id = parser.get_task_id()
-    print("Task ID:", task_id)
+
+    task_file = "tarefa01.json"  # Path to the JSON file
+    task_parser = TaskJSONParser(task_file)
+    
+    ip = sys.argv[1]  # IP fornecido pelo usuário
+    port = 12345  # Porta fixa para UDP e TCP
+
+    
+     # Cria o servidor com o IP fornecido e a porta fixa
+    server = NMS_Server(ip, port)
+    
+    # Load tasks for each agent from the JSON parser
+    server.load_tasks(task_parser)
+    # Debugging: Check loaded tasks
+    print(f"Loaded tasks: {server.tasks}")
+    
+    
+    server.start_servers()
+    
+    
+    
     
     # Verifica se o parâmetro de IP foi passado corretamente
     if len(sys.argv) < 2:
         print("Uso: python servidor.py <IP>")
         sys.exit(1)
 
-    ip = sys.argv[1]  # IP fornecido pelo usuário
-    port = 12345  # Porta fixa para UDP e TCP
-
-    # Cria o servidor com o IP fornecido e a porta fixa
-    server = NMS_Server(ip, port)
-    server.start_servers()
-    
-    # Load tasks for each agent from the JSON parser
-    server.load_tasks(parser)
     
     print("Waiting for agent registrations...")
     # Example: Assign tasks to registered agents
     for agent_id, agent_info in server.registered_agents.items():
-        tasks = parser.get_tasks_for_agent(agent_id)
+        tasks = task_parser.get_tasks_for_agent(agent_id)
         for task in tasks:
             server.send_task_to_agent(agent_id, task)
