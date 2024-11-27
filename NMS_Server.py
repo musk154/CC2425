@@ -49,10 +49,9 @@ class NMS_Server:
             print(f"Error loading tasks: {e}")
 
 
-                
     def send_task_to_agent(self, agent_id):
         """
-        Send tasks to a specific agent.
+        Send tasks to a specific agent with sequence numbers and handle retransmissions.
 
         Args:
             agent_id (str): ID of the agent.
@@ -60,40 +59,43 @@ class NMS_Server:
         agent = self.registered_agents.get(agent_id)
         if agent and agent_id in self.tasks:
             try:
-                # Filter and format tasks to include only relevant data
-                tasks_to_send = []
-                for task in self.tasks[agent_id]:
-                    filtered_task = {
-                        "device_id": task["device_id"],
-                        "link_metrics": task.get("link_metrics", {})  # Include only link_metrics
-                    }
-                    tasks_to_send.append(filtered_task)
+                # Prepare tasks with sequence numbers
+                tasks_to_send = self.tasks[agent_id]
+                seq_number = 1  # Start with sequence number 1
 
-                # Convert tasks to JSON and encode to binary
-                message = json.dumps({"type": "TASKS", "tasks": tasks_to_send}).encode()
-
-                # Send the tasks via UDP to the registered agent's address
-                client_address = agent["address"]
                 udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                udp_socket.sendto(message, client_address)
+                client_address = agent["address"]
 
-                print(f"Tasks sent to agent {agent_id}: {tasks_to_send}")
+                for task in tasks_to_send:
+                    message = {
+                        "seq": seq_number,
+                        "task": task
+                    }
+                    data = json.dumps(message).encode()
+
+                    while True:
+                        # Send the task
+                        udp_socket.sendto(data, client_address)
+                        print(f"[UDP] Sent task seq {seq_number} to {agent_id}: {task}")
+
+                        # Wait for acknowledgment
+                        udp_socket.settimeout(2.0)  # Timeout for ACK
+                        try:
+                            ack_data, _ = udp_socket.recvfrom(1024)
+                            ack_message = json.loads(ack_data.decode())
+                            if ack_message.get("ack") == seq_number:
+                                print(f"[UDP] Received ACK for seq {seq_number}")
+                                seq_number += 1
+                                break
+                        except socket.timeout:
+                            print(f"[UDP] No ACK for seq {seq_number}, retransmitting...")
+
             except Exception as e:
-                print(f"Error sending tasks to {agent_id}: {e}")
-        else:
-            print(f"No tasks or agent found for {agent_id}.")
-
+                print(f"[UDP] Error sending tasks to {agent_id}: {e}")
 
 
 
     def handle_agent_registration(self, client_address, agent_id):
-        """
-        Handle registration of an agent.
-
-        Args:
-            client_address (tuple): Address of the agent.
-            agent_id (str): Unique identifier for the agent.
-        """
         try:
             print(f"Agent registration attempt: {agent_id} from {client_address}")
             print(f"Tasks available: {self.tasks}")
@@ -106,17 +108,17 @@ class NMS_Server:
             print(f"Registered agents: {self.registered_agents}")
 
             # Check if tasks exist for the registered agent
-            print(f"Tasks for agent {agent_id}: {self.tasks.get(agent_id, 'No tasks found')}")
+            tasks_for_agent = self.tasks.get(agent_id, [])
+            print(f"Tasks for agent {agent_id}: {tasks_for_agent}")
 
-            # Send tasks to the agent
-            if agent_id in self.tasks:
-                print(f"Sending tasks to agent {agent_id}")
-                self.send_task_to_agent(agent_id)
-            else:
-                print(f"No tasks assigned to agent {agent_id}.")
+            # Send a response to the agent (e.g., task count)
+            task_count = len(tasks_for_agent)
+            response = struct.pack("I", task_count)  # Send the task count as a 4-byte integer
+            udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            udp_socket.sendto(response, client_address)
+            print(f"[UDP] Task count {task_count} sent to agent {agent_id}")
         except Exception as e:
             print(f"Error in handle_agent_registration: {e}")
-
 
 
 
@@ -141,29 +143,29 @@ class NMS_Server:
         """
         print(f"[Server] Metrics received from {agent_id}: {metrics}")
         
-    
 
     def start_udp_server(self):
-        """
-        Start the UDP server to handle incoming messages.
-        """
         udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
             udp_socket.bind((self.ip, self.port))
             print(f"[UDP] Server listening on {self.ip}:{self.port}...")
 
             while True:
-                data, client_address = udp_socket.recvfrom(1024)
+                try:
+                    data, client_address = udp_socket.recvfrom(1024)
+                    print(f"[UDP] Raw data received: {data} from {client_address}")
 
-                # Decode binary data
-                message_type, agent_id = struct.unpack("4s32s", data[:36])
-                message_type = message_type.decode().strip('\x00')
-                agent_id = agent_id.decode().strip('\x00')
+                    # Decode binary data
+                    message_type, agent_id = struct.unpack("4s32s", data[:36])
+                    message_type = message_type.decode().strip('\x00')
+                    agent_id = agent_id.decode().strip('\x00')
 
-                print(f"[UDP] Received message type {message_type} from {agent_id} at {client_address}")
+                    print(f"[UDP] Received message type {message_type} from {agent_id} at {client_address}")
 
-                if message_type == "ACK":
-                    self.handle_agent_registration(client_address, agent_id)
+                    if message_type == "ACK":
+                        self.handle_agent_registration(client_address, agent_id)
+                except Exception as e:
+                    print(f"[UDP] Error receiving or handling data: {e}")
         except Exception as e:
             print(f"[UDP] Server error: {e}")
         finally:
@@ -225,11 +227,12 @@ class NMS_Server:
         # Aguarda as threads de ambos os servidores
         udp_thread.join()
         tcp_thread.join()
+        
+        
 
 if __name__ == "__main__":
-    #parse no ficheiro json
     
-
+    #parse no ficheiro json
     task_file = "tarefa01.json"  # Path to the JSON file
     task_parser = TaskJSONParser(task_file)
     
@@ -243,8 +246,6 @@ if __name__ == "__main__":
     # Load tasks for each agent from the JSON parser
     server.load_tasks(task_parser)    
     server.start_servers()
-    
-    
     
     
     # Verifica se o parâmetro de IP foi passado corretamente

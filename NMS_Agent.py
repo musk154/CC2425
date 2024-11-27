@@ -7,6 +7,7 @@ from metrics_collector import MetricCollector
 
 
 
+
 class NMS_Agent:
     def __init__(self, ip, port, agent_id, protocol="UDP"):
         """
@@ -54,14 +55,37 @@ class NMS_Agent:
             except Exception as e:
                 print(f"[UDP] Error communicating with server: {e}")
 
-    def set_tasks(self, tasks):
-        """
-        Set the tasks assigned to this agent.
 
-        Args:
-            tasks (list): List of tasks.
+    def receive_tasks(self):
         """
-        self.tasks = tasks
+        Receive tasks from the server and send ACKs for each task using the struct library.
+        """
+        udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        udp_socket.bind((self.server_ip, self.server_port))  # Agent listens for tasks
+
+        try:
+            while True:
+                data, server_address = udp_socket.recvfrom(1024)
+                
+                # Decode the received binary message
+                seq_number, task_length = struct.unpack("!I I", data[:8])  # 4-byte sequence + 4-byte task length
+                task_binary = data[8:8 + task_length]
+                task = task_binary.decode()  # Decode task from binary to string
+                
+                print(f"[UDP] Received task seq {seq_number}: {task}")
+
+                # Add the task to the task queue (optional)
+                self.tasks.append(task)
+
+                # Send acknowledgment
+                ack_message = struct.pack("!I", seq_number)  # 4-byte ACK with sequence number
+                udp_socket.sendto(ack_message, server_address)
+                print(f"[UDP] Sent ACK for seq {seq_number}")
+        except Exception as e:
+            print(f"[UDP] Error receiving tasks: {e}")
+        finally:
+            udp_socket.close()
+
 
     def start_metric_collection(self, udp_socket):
         """
