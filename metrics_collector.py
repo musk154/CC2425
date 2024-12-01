@@ -71,7 +71,7 @@ class MetricCollector:
 
         Args:
             server (str): Server address.
-            role (str): 'client' or 'server'.
+            role (str): 'client'.
             duration (int): Duration of the test in seconds.
             protocol (str): 'TCP' or 'UDP'.
 
@@ -79,26 +79,37 @@ class MetricCollector:
             dict: Results of the iperf command.
         """
         try:
-            command = ["iperf3"]
-            if role == "client":
-                command += ["--client", server]
-            else:
-                command += ["--server"]
+            # Ensure the role is client
+            if role != "client":
+                return {"error": "Invalid role. Only 'client' is supported for tasks.", "status": "failure"}
 
-            command += ["--time", str(duration)]
-
+            # Build the iperf3 command
+            command = [
+                "iperf3",
+                "--client", server,
+                "--time", str(duration),
+                "--format", "m"  # Use megabits as the output format
+            ]
             if protocol.upper() == "UDP":
-                command += ["--udp"]
+                command.append("--udp")
 
+            print(f"[DEBUG] Running command: {' '.join(command)}")
+
+            # Run the iperf3 client command
             result = subprocess.run(command, capture_output=True, text=True)
+
+            # Check the result
             if result.returncode == 0:
-                output = result.stdout
-                # Parse output to extract metrics
-                return {"output": output, "status": "success"}
+                return {"output": result.stdout, "status": "success"}
             else:
+                # Log the error details for debugging
+                print(f"[DEBUG] Command failed with stderr: {result.stderr.strip()}")
                 return {"error": result.stderr.strip(), "status": "failure"}
         except Exception as e:
             return {"error": str(e), "status": "failure"}
+
+
+
 
 
     def _extract_latency(self, ping_output):

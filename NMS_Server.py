@@ -17,13 +17,24 @@ class NMS_Server:
     
     def load_tasks(self, parser):
         """
-        Load tasks using the TaskJSONParser and assign them to agents.
+        Load tasks using the TaskJSONParser and assign them to agents,
+        dynamically replacing the server_address and destination with the server's IP.
         """
         try:
             print("Loading tasks from parser...")
             self.tasks = {}
 
             for device in parser.get_devices():
+                # Update server_address and destination dynamically
+                link_metrics = device.get("link_metrics", {})
+                for metric_name, metric in link_metrics.items():
+                    if isinstance(metric, dict):
+                        if "server_address" in metric:
+                            metric["server_address"] = self.ip  # Replace server_address with the server's IP
+                        if "destination" in metric:
+                            metric["destination"] = self.ip  # Replace destination with the server's IP
+
+                # Assign tasks to agents
                 assigned_to = device.get("assigned_to")
                 if assigned_to:
                     if assigned_to not in self.tasks:
@@ -33,6 +44,7 @@ class NMS_Server:
             print(f"Tasks loaded successfully: {self.tasks}")
         except Exception as e:
             print(f"Error loading tasks: {e}")
+
 
     def send_task_to_agent(self, agent_id):
         """
@@ -72,7 +84,11 @@ class NMS_Server:
                             print(f"[UDP] Message length: {len(message)} bytes")
                             
                             udp_socket.sendto(message, client_address)
-                            print(f"[UDP] Sent task seq {seq_number} to agent {agent_id}")
+                            print(f"[DEBUG] Sent task seq {seq_number} to {client_address}: {message[:50]}...")
+                            print(f"[DEBUG] Sending task to {client_address}")
+                            print(f"[DEBUG] Task message length: {len(message)}")
+                            print(f"[DEBUG] Task message content (first 50 bytes): {message[:50]}")
+
 
                             # Wait for acknowledgment
                             udp_socket.settimeout(5.0)
@@ -142,11 +158,11 @@ class NMS_Server:
 
     def start_udp_server(self):
         """
-        Start UDP server to handle agent registrations and communication.
+        Start the UDP server to handle agent registrations and communication.
         """
         udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
-            udp_socket.bind((self.ip, self.port))
+            udp_socket.bind((self.ip, self.port))  # Bind to port 12345
             print(f"[UDP] Server listening on {self.ip}:{self.port}...")
 
             while True:
@@ -154,15 +170,16 @@ class NMS_Server:
                 print(f"[UDP] Received raw data from {client_address}: {data}")
 
                 try:
-                    # Decode the message type (first 4 bytes) and strip null bytes
+                    # Decode the message type
                     message_type = data[:4].decode('utf-8').strip('\x00')
-
+                    print(f"[DEBUG] Message type: {message_type}")
                     if message_type == "ACK":
-                        # Handle agent registration or acknowledgment
                         self.handle_ack(data, client_address)
-                    elif message_type == "RES":
-                        # Handle task result
-                        self.handle_task_result(data[4:], client_address)
+                    elif message_type == "TASK":
+                        seq_number, = struct.unpack("!I", data[4:8])
+                        print(f"[UDP] Received task ACK for seq {seq_number}")
+                    elif message_type == "TRES":
+                        self.handle_task_result(data, client_address)
                     else:
                         print(f"[UDP] Unknown message type: {message_type}")
                 except Exception as e:
@@ -171,6 +188,8 @@ class NMS_Server:
             print(f"[UDP] Server error: {e}")
         finally:
             udp_socket.close()
+
+
 
     def handle_ack(self, data, client_address):
         """
@@ -189,24 +208,30 @@ class NMS_Server:
     
     def handle_task_result(self, data, client_address):
         """
-        Handle task result message from agent.
+        Handle task result message from the agent.
+        Args:
+            data (bytes): The data received from the agent.
+            client_address (tuple): The address of the agent sending the result.
         """
         try:
-            # Check message type
+            # Verify message type
             msg_type = data[:4].decode('utf-8').strip('\x00')
             if msg_type != "TRES":
                 print(f"[UDP] Unexpected message type: {msg_type}")
                 return
 
-            # Unpack sequence number and decode the JSON result
+            # Decode sequence number and task result JSON
             seq_number, = struct.unpack("!I", data[4:8])
             result_data = json.loads(data[8:].decode('utf-8'))
-            print(f"[UDP] Received task result seq {seq_number} from {client_address}")
-            
-            # Optionally store results for future use
+            print(f"[UDP] Received task result seq {seq_number} from {client_address}: {result_data}")
+
+            # Store or log the result for further processing
             self.store_results(client_address, seq_number, result_data)
+
         except json.JSONDecodeError as e:
             print(f"[UDP] Error decoding JSON: {e}")
+        except struct.error as e:
+            print(f"[UDP] Struct unpacking error: {e}")
         except Exception as e:
             print(f"[UDP] Error handling task result: {e}")
 
@@ -215,9 +240,16 @@ class NMS_Server:
     def store_results(self, client_address, seq_number, result_data):
         """
         Store the received results for later use.
+
+        Args:
+            client_address (tuple): Address of the agent that sent the result.
+            seq_number (int): The sequence number of the task.
+            result_data (dict): The results of the task execution.
         """
         print(f"Storing results from {client_address}: seq {seq_number} - {result_data}")
-        # Implement your storage logic (e.g., save to database or file)
+        # Implement storage logic (e.g., save to a file, database, etc.)
+
+
 
 
     #Starting the actual server side

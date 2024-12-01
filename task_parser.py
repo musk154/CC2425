@@ -33,10 +33,9 @@ class TaskJSONParser:
             list: List of tasks assigned to the agent.
         """
         return [
-            device for device in self.data["task"]["devices"]
+            device for device in self.data.get("task", {}).get("devices", [])
             if device.get("assigned_to") == agent_id
         ]
-
 
     def get_task_id(self):
         """Get the task ID."""
@@ -67,8 +66,11 @@ class TaskJSONParser:
         devices = self.get_devices()
         for device in devices:
             if device.get("device_id") == device_id:
-                if "link_metrics" in device and "alertflow_conditions" in device["link_metrics"]:
-                    device["link_metrics"]["alertflow_conditions"].update(new_conditions)
+                link_metrics = device.get("link_metrics", {})
+                if "alertflow_conditions" in link_metrics:
+                    link_metrics["alertflow_conditions"].update(new_conditions)
+                else:
+                    link_metrics["alertflow_conditions"] = new_conditions
 
     def save(self, output_file=None):
         """
