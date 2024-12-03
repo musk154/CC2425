@@ -176,6 +176,11 @@ class NMS_Agent:
                 # Execute the task
                 results = self.execute_task(task, metric_collector)
 
+                # Format and print the results
+                formatted_results = self.format_task_results(results)
+                print("[DEBUG] Formatted task results:")
+                print(formatted_results)
+
                 # Send the task results back to the server
                 self.send_results_to_server(seq_number, results, addr)
 
@@ -187,8 +192,77 @@ class NMS_Agent:
             print(f"[UDP] Stopping periodic execution for device: {device_id}")
         except Exception as e:
             print(f"[DEBUG] Error during periodic execution for {device_id}: {e}")
+    
 
+    def format_task_results(self, results):
+        """
+        Format the task results into a user-friendly, readable format.
 
+        Args:
+            results (dict): The raw results dictionary.
+
+        Returns:
+            str: A formatted string for user-friendly display.
+        """
+        formatted_output = []
+
+        # Device ID
+        device_id = results.get("device_id", "Unknown")
+        formatted_output.append(f"Device ID: {device_id}")
+
+        # Overall status
+        status = results.get("status", "Unknown")
+        formatted_output.append(f"Status: {status}")
+
+        # CPU Usage
+        cpu = results.get("results", {}).get("cpu_usage", {})
+        if cpu.get("status") == "success":
+            formatted_output.append(f"  CPU Usage: {cpu.get('cpu_usage')}")
+        else:
+            formatted_output.append("  CPU Usage: Failed to collect data")
+
+        # RAM Usage
+        ram = results.get("results", {}).get("ram_usage", {})
+        if ram.get("status") == "success":
+            formatted_output.append(f"  RAM Usage: {ram.get('ram_usage')}")
+        else:
+            formatted_output.append("  RAM Usage: Failed to collect data")
+
+        # Interface Statistics
+        interface_stats = results.get("results", {}).get("interface_stats", {})
+        if interface_stats.get("status") == "success":
+            formatted_output.append("  Network Interfaces:")
+            for iface, stats in interface_stats.get("interface_stats", {}).items():
+                if stats.get("status") == "failure":
+                    formatted_output.append(f"    {iface}: {stats.get('error')}")
+                else:
+                    formatted_output.append(
+                        f"    {iface}: TX Packets: {stats['tx_packets']}, "
+                        f"RX Packets: {stats['rx_packets']}, "
+                        f"Total Packets: {stats['total_packets']}"
+                    )
+        else:
+            formatted_output.append("  Network Interfaces: Failed to collect data")
+
+        # Latency
+        latency = results.get("results", {}).get("latency", {})
+        if latency.get("status") == "success":
+            formatted_output.append(f"  Latency: {latency.get('latency')} ms")
+        else:
+            formatted_output.append("  Latency: Failed to collect data")
+
+        # Packet Loss and Bandwidth
+        packet_loss = results.get("results", {}).get("packet_loss", {})
+        if packet_loss.get("status") == "success":
+            pl_results = packet_loss.get("results", {})
+            formatted_output.append(f"  Bandwidth: {pl_results.get('transfer', 'N/A')} transferred, "
+                                    f"{pl_results.get('bitrate', 'N/A')} bitrate")
+        else:
+            formatted_output.append("  Bandwidth: Failed to collect data")
+
+        return "\n".join(formatted_output)
+
+    
     def process_task(self, data, addr):
         """
         Process a task received from the server.
@@ -228,6 +302,12 @@ class NMS_Agent:
             addr (tuple): Server address (IP, port).
         """
         try:
+            # Format results for readability
+            formatted_results = self.format_task_results(results)
+            print("[DEBUG] Formatted task results:")
+            print(formatted_results)
+
+            # Serialize the results and send them to the server
             result_binary = json.dumps(results).encode('utf-8')
             message = struct.pack("!4sI", b"TRES", seq_number) + result_binary
 
@@ -237,8 +317,6 @@ class NMS_Agent:
             print(f"[UDP] Sent task results seq {seq_number} to {server_address}")
         except Exception as e:
             print(f"[UDP] Error sending results to server: {e}")
-
-
 
 
 if __name__ == "__main__":

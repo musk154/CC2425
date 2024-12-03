@@ -6,6 +6,76 @@ import struct
 import json
 from task_parser import TaskJSONParser
 
+
+
+def format_task_results(results):
+        """
+        Format the task results into a user-friendly, readable format.
+
+        Args:
+            results (dict): The raw results dictionary.
+
+        Returns:
+            str: A formatted string for user-friendly display.
+        """
+        formatted_output = []
+
+        # Device ID
+        device_id = results.get("device_id", "Unknown")
+        formatted_output.append(f"Device ID: {device_id}")
+
+        # Overall status
+        status = results.get("status", "Unknown")
+        formatted_output.append(f"Status: {status}")
+
+        # CPU Usage
+        cpu = results.get("results", {}).get("cpu_usage", {})
+        if cpu.get("status") == "success":
+            formatted_output.append(f"  CPU Usage: {cpu.get('cpu_usage')}")
+        else:
+            formatted_output.append("  CPU Usage: Failed to collect data")
+
+        # RAM Usage
+        ram = results.get("results", {}).get("ram_usage", {})
+        if ram.get("status") == "success":
+            formatted_output.append(f"  RAM Usage: {ram.get('ram_usage')}")
+        else:
+            formatted_output.append("  RAM Usage: Failed to collect data")
+
+        # Interface Statistics
+        interface_stats = results.get("results", {}).get("interface_stats", {})
+        if interface_stats.get("status") == "success":
+            formatted_output.append("  Network Interfaces:")
+            for iface, stats in interface_stats.get("interface_stats", {}).items():
+                if stats.get("status") == "failure":
+                    formatted_output.append(f"    {iface}: {stats.get('error')}")
+                else:
+                    formatted_output.append(
+                        f"    {iface}: TX Packets: {stats['tx_packets']}, "
+                        f"RX Packets: {stats['rx_packets']}, "
+                        f"Total Packets: {stats['total_packets']}"
+                    )
+        else:
+            formatted_output.append("  Network Interfaces: Failed to collect data")
+
+        # Latency
+        latency = results.get("results", {}).get("latency", {})
+        if latency.get("status") == "success":
+            formatted_output.append(f"  Latency: {latency.get('latency')} ms")
+        else:
+            formatted_output.append("  Latency: Failed to collect data")
+
+        # Packet Loss and Bandwidth
+        packet_loss = results.get("results", {}).get("packet_loss", {})
+        if packet_loss.get("status") == "success":
+            pl_results = packet_loss.get("results", {})
+            formatted_output.append(f"  Bandwidth: {pl_results.get('transfer', 'N/A')} transferred, "
+                                    f"{pl_results.get('bitrate', 'N/A')} bitrate")
+        else:
+            formatted_output.append("  Bandwidth: Failed to collect data")
+
+        return "\n".join(formatted_output)
+
 class NMS_Server:
     
     def __init__(self, ip, port=12345):
@@ -120,7 +190,6 @@ class NMS_Server:
         """
         # Start the iperf3 server
         self.start_iperf3_server()
-        
         udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
             udp_socket.bind((self.ip, self.port))  # Bind to port 12345
@@ -128,7 +197,7 @@ class NMS_Server:
 
             while True:
                 data, client_address = udp_socket.recvfrom(4096)
-                print(f"[UDP] Received raw data from {client_address}: {data}")
+                
 
                 try:
                     # Decode the message type
@@ -233,6 +302,9 @@ class NMS_Server:
             print(f"[UDP] Error handling ACK: {e}")
 
     
+
+    
+    
     def handle_task_result(self, data, client_address):
         """
         Handle task result message from the agent.
@@ -250,7 +322,12 @@ class NMS_Server:
             # Decode sequence number and task result JSON
             seq_number, = struct.unpack("!I", data[4:8])
             result_data = json.loads(data[8:].decode('utf-8'))
-            print(f"[UDP] Received task result seq {seq_number} from {client_address}: {result_data}")
+            # Format the results
+            formatted_results = format_task_results(result_data)
+
+            # Print the formatted results
+            print(f"[UDP] Received task result seq {seq_number} from {client_address}:\n{formatted_results}")
+
 
             # Store or log the result for further processing
             self.store_results(client_address, seq_number, result_data)
@@ -262,7 +339,7 @@ class NMS_Server:
         except Exception as e:
             print(f"[UDP] Error handling task result: {e}")
 
-
+    
 
     def store_results(self, client_address, seq_number, result_data):
         """
@@ -273,10 +350,8 @@ class NMS_Server:
             seq_number (int): The sequence number of the task.
             result_data (dict): The results of the task execution.
         """
-        print(f"Storing results from {client_address}: seq {seq_number} - {result_data}")
+        
         # Implement storage logic (e.g., save to a file, database, etc.)
-
-
 
 
     #Starting the actual server side

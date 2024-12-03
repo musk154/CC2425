@@ -1,7 +1,9 @@
 import subprocess
 import psutil
+import re
 
 class MetricCollector:
+    
     def collect_cpu_usage(self):
         """
         Collect real CPU usage using psutil.
@@ -31,7 +33,7 @@ class MetricCollector:
 
     def collect_interface_stats(self, interfaces):
         """
-        Simulate interface statistics collection for the provided interfaces.
+        Collect network interface statistics for the provided interfaces using psutil.
 
         Args:
             interfaces (list): List of interface names.
@@ -47,8 +49,7 @@ class MetricCollector:
                     interface_data[iface] = {
                         "tx_packets": stats[iface].packets_sent,
                         "rx_packets": stats[iface].packets_recv,
-                        "tx_bytes": stats[iface].bytes_sent,
-                        "rx_bytes": stats[iface].bytes_recv
+                        "total_packets": stats[iface].packets_sent + stats[iface].packets_recv
                     }
                 else:
                     interface_data[iface] = {"status": "failure", "error": "Interface not found"}
@@ -119,7 +120,9 @@ class MetricCollector:
 
             # Check the result
             if result.returncode == 0:
-                return {"output": result.stdout, "status": "success"}
+                # Parse the output and return cleaned results
+                cleaned_results = self._parse_iperf_output(result.stdout)
+                return {"results": cleaned_results, "status": "success"}
             else:
                 # Log the error details for debugging
                 print(f"[DEBUG] Command failed with stderr: {result.stderr.strip()}")
@@ -127,8 +130,40 @@ class MetricCollector:
         except Exception as e:
             return {"error": str(e), "status": "failure"}
 
+    def _parse_iperf_output(self, output):
+        """
+        Parse raw iperf3 output and extract relevant metrics.
 
+        Args:
+            output (str): Raw iperf3 output.
 
+        Returns:
+            dict: Parsed metrics including transfer, bitrate, jitter, and packet loss.
+        """
+        try:
+            metrics = {}
+
+            # Extract sender transfer and bitrate
+            sender_match = re.search(
+                r"(\d+\.?\d*)\s([KMGT]?)Bytes\s+(\d+\.?\d*)\s([KMGT]?bits/sec)", output
+            )
+            if sender_match:
+                metrics["transfer"] = f"{sender_match.group(1)} {sender_match.group(2)}Bytes"
+                metrics["bitrate"] = f"{sender_match.group(3)} {sender_match.group(4)}"
+
+            # Extract jitter, lost packets, and total packets
+            jitter_match = re.search(
+                r"Jitter\s+(\d+\.?\d*)\s?ms\s+(\d+)/(\d+)\s+\(\d+%?\)", output
+            )
+            if jitter_match:
+                metrics["jitter"] = f"{jitter_match.group(1)} ms"
+                metrics["packet_loss"] = f"{jitter_match.group(2)}/{jitter_match.group(3)}"
+
+            return metrics
+
+        except Exception as e:
+            print(f"[DEBUG] Error parsing iperf3 output: {e}")
+            return {"error": "Failed to parse iperf3 output"}
 
 
     def _extract_latency(self, ping_output):
