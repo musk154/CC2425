@@ -1,5 +1,6 @@
 import socket
 import threading
+import subprocess
 import sys
 import struct
 import json
@@ -13,7 +14,42 @@ class NMS_Server:
         self.registered_agents = {}
         self.tasks = {}
         self.sequence_numbers = {}  # Track sequence numbers per agent
+        self.iperf3_process = None  # Track the iperf3 server process
 
+
+    def start_iperf3_server(self):
+        """
+        Start the iperf3 server in the background.
+        """
+        try:
+            print("[iperf3] Starting iperf3 server...")
+            self.iperf3_process = subprocess.Popen(
+                ["iperf3", "--server"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            print("[iperf3] iperf3 server started successfully.")
+        except FileNotFoundError:
+            print("[iperf3] Error: iperf3 is not installed or not in PATH.")
+        except Exception as e:
+            print(f"[iperf3] Failed to start iperf3 server: {e}")
+
+    def stop_iperf3_server(self):
+        """
+        Stop the iperf3 server if it's running.
+        """
+        if self.iperf3_process and self.iperf3_process.poll() is None:
+            print("[iperf3] Stopping iperf3 server...")
+            try:
+                self.iperf3_process.terminate()
+                self.iperf3_process.wait()
+                print("[iperf3] iperf3 server stopped successfully.")
+            except Exception as e:
+                print(f"[iperf3] Failed to stop iperf3 server: {e}")
+        else:
+            print("[iperf3] iperf3 server is not running.")
+    
+    
     
     def load_tasks(self, parser):
         """
@@ -46,86 +82,8 @@ class NMS_Server:
             print(f"Error loading tasks: {e}")
 
 
-    def send_task_to_agent(self, agent_id):
-        """
-        Send tasks to an agent and wait for results.
-        """
-        agent = self.registered_agents.get(agent_id)
-        if agent and agent_id in self.tasks:
-            try:
-                tasks_to_send = self.tasks[agent_id]
-                udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                client_address = agent["address"]
-
-                # Initialize sequence number tracking for this agent
-                if agent_id not in self.sequence_numbers:
-                    self.sequence_numbers[agent_id] = 1
-
-                for task in tasks_to_send:
-                    # Use and increment the sequence number for this agent
-                    seq_number = self.sequence_numbers[agent_id]
-                    self.sequence_numbers[agent_id] += 1
-
-                    # Ensure seq_number is within the valid 32-bit unsigned integer range
-                    seq_number = seq_number & 0xFFFFFFFF
-
-                    # Encode the task into binary
-                    task_binary = json.dumps(task).encode('utf-8')
-                    task_length = len(task_binary)
-                    
-                    # Prepare message with sequence number and task
-                    message = struct.pack("!I I", seq_number, task_length) + task_binary
-
-                    max_retries = 3
-                    for attempt in range(max_retries):
-                        try:
-                            # Send the task
-                            print(f"[UDP] Attempting to send task. Destination: {client_address}")
-                            print(f"[UDP] Message length: {len(message)} bytes")
-                            
-                            udp_socket.sendto(message, client_address)
-                            print(f"[DEBUG] Sent task seq {seq_number} to {client_address}: {message[:50]}...")
-                            print(f"[DEBUG] Sending task to {client_address}")
-                            print(f"[DEBUG] Task message length: {len(message)}")
-                            print(f"[DEBUG] Task message content (first 50 bytes): {message[:50]}")
-
-
-                            # Wait for acknowledgment
-                            udp_socket.settimeout(5.0)
-                            try:
-                                data, addr = udp_socket.recvfrom(4096)
-                                print(f"[UDP] Received data from {addr}")
-                                print(f"[UDP] Received data: {data}")
-                                
-                                # Check if it's an acknowledgment
-                                try:
-                                    ack_type = data[:4].decode('utf-8').strip('\x00')
-                                    print(f"[UDP] ACK Type: {ack_type}")
-                                    
-                                    if ack_type == "TASK":
-                                        ack_seq, = struct.unpack("!I", data[4:8])
-                                        if ack_seq == seq_number:
-                                            print(f"[UDP] Received task ACK for seq {seq_number}")
-                                            break
-                                    else:
-                                        print(f"[UDP] Received unexpected message type: {ack_type}")
-                                except Exception as decode_err:
-                                    print(f"[UDP] Error decoding ACK: {decode_err}")
-                            
-                            except socket.timeout:
-                                print(f"[UDP] Timeout waiting for ACK for seq {seq_number}")
-                        
-                        except Exception as send_err:
-                            print(f"[UDP] Error sending task: {send_err}")
-                    
-                    else:
-                        print(f"[UDP] Failed to send task seq {seq_number} after {max_retries} attempts")
-                        continue
-
-                udp_socket.close()
-
-            except Exception as e:
-                print(f"[UDP] Error in send_task_to_agent: {e}")
+    
+                
 
     def handle_agent_registration(self, client_address, agent_id):
         """
@@ -160,6 +118,9 @@ class NMS_Server:
         """
         Start the UDP server to handle agent registrations and communication.
         """
+        # Start the iperf3 server
+        self.start_iperf3_server()
+        
         udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
             udp_socket.bind((self.ip, self.port))  # Bind to port 12345
@@ -188,6 +149,72 @@ class NMS_Server:
             print(f"[UDP] Server error: {e}")
         finally:
             udp_socket.close()
+
+    def send_task_to_agent(self, agent_id):
+        """
+        Send tasks to an agent and include the global frequency.
+        """
+        agent = self.registered_agents.get(agent_id)
+        if agent and agent_id in self.tasks:
+            try:
+                tasks_to_send = self.tasks[agent_id]
+                udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                client_address = agent["address"]
+
+                # Initialize sequence number tracking for this agent
+                if agent_id not in self.sequence_numbers:
+                    self.sequence_numbers[agent_id] = 1
+
+                for task in tasks_to_send:
+                    # Use and increment the sequence number for this agent
+                    seq_number = self.sequence_numbers[agent_id]
+                    self.sequence_numbers[agent_id] += 1
+
+                    # Ensure seq_number is within the valid 32-bit unsigned integer range
+                    seq_number = seq_number & 0xFFFFFFFF
+
+                    # Encode the task into binary
+                    task_binary = json.dumps(task).encode('utf-8')
+                    task_length = len(task_binary)
+                    
+                    # Prepare message with sequence number and task
+                    message = struct.pack("!I I", seq_number, task_length) + task_binary
+
+                    max_retries = 3
+                    for attempt in range(max_retries):
+                        try:
+                            # Send the task
+                            print(f"[UDP] Attempting to send task. Destination: {client_address}")
+                            print(f"[DEBUG] Task being sent to {agent_id}: {task}")
+                            
+                            udp_socket.sendto(message, client_address)
+
+                            # Wait for acknowledgment
+                            udp_socket.settimeout(5.0)
+                            data, addr = udp_socket.recvfrom(4096)
+                            print(f"[UDP] Received data from {addr}: {data}")
+
+                            # Check if it's an acknowledgment
+                            ack_type = data[:4].decode('utf-8').strip('\x00')
+                            if ack_type == "TASK":
+                                ack_seq, = struct.unpack("!I", data[4:8])
+                                if ack_seq == seq_number:
+                                    print(f"[UDP] Received task ACK for seq {seq_number}")
+                                    break
+                            else:
+                                print(f"[UDP] Unexpected message type: {ack_type}")
+                        
+                        except socket.timeout:
+                            print(f"[UDP] Timeout waiting for ACK for seq {seq_number}")
+                    
+                    else:
+                        print(f"[UDP] Failed to send task seq {seq_number} after {max_retries} attempts")
+                        continue
+
+                udp_socket.close()
+
+            except Exception as e:
+                print(f"[UDP] Error in send_task_to_agent: {e}")
 
 
 

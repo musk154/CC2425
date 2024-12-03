@@ -8,6 +8,7 @@ class TaskJSONParser:
         """
         self.file_path = file_path
         self.data = self._load_json()
+        self.global_frequency = self.data.get("frequency", 20)  # Default to 20 seconds
 
     def _load_json(self):
         """
@@ -24,18 +25,21 @@ class TaskJSONParser:
 
     def get_tasks_for_agent(self, agent_id):
         """
-        Get all tasks assigned to a specific agent.
+        Get tasks assigned to a specific agent, including the global frequency.
 
         Args:
-            agent_id (str): ID of the agent.
+            agent_id (str): The ID of the agent.
 
         Returns:
             list: List of tasks assigned to the agent.
         """
-        return [
-            device for device in self.data.get("task", {}).get("devices", [])
-            if device.get("assigned_to") == agent_id
-        ]
+        agent_tasks = []
+        for device in self.devices:
+            if device.get("assigned_to") == agent_id:
+                device["frequency"] = self.global_frequency  # Apply global frequency
+                agent_tasks.append(device)
+        return agent_tasks
+
 
     def get_task_id(self):
         """Get the task ID."""

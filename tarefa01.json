@@ -1,7 +1,7 @@
 {
     "task": {
         "task_id": "task-202",
-        "frequency": 20,
+        "frequency": 10,
         "devices": [
             {
                 "device_id": "r1",

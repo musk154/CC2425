@@ -2,6 +2,7 @@ import socket
 import sys
 import struct
 import json
+import time
 from metrics_collector import MetricCollector
 
 class NMS_Agent:
@@ -149,6 +150,43 @@ class NMS_Agent:
 
         return results
 
+    
+
+    def execute_task_periodically(self, task, seq_number, addr):
+        """
+        Execute a task periodically based on the frequency passed by the server.
+
+        Args:
+            task (dict): The task details.
+            seq_number (int): The sequence number of the task.
+            addr (tuple): The server address.
+        """
+        frequency = task.get("frequency")  # Frequency passed by the server
+        if frequency is None or not isinstance(frequency, (int, float)) or frequency <= 0:
+            print("[DEBUG] Invalid or missing frequency in task. Defaulting to 20 seconds.")
+            frequency = 20  # Default to 20 seconds if invalid or missing
+
+        device_id = task.get("device_id")
+        metric_collector = MetricCollector()  # Instantiate MetricCollector
+
+        print(f"[UDP] Starting periodic execution for device: {device_id}, frequency: {frequency} seconds")
+
+        try:
+            while True:
+                # Execute the task
+                results = self.execute_task(task, metric_collector)
+
+                # Send the task results back to the server
+                self.send_results_to_server(seq_number, results, addr)
+
+                # Wait for the next execution
+                print(f"[UDP] Waiting {frequency} seconds before the next execution...")
+                time.sleep(frequency)
+
+        except KeyboardInterrupt:
+            print(f"[UDP] Stopping periodic execution for device: {device_id}")
+        except Exception as e:
+            print(f"[DEBUG] Error during periodic execution for {device_id}: {e}")
 
 
     def process_task(self, data, addr):
@@ -168,12 +206,8 @@ class NMS_Agent:
             # Send task acknowledgment back to the server
             self.send_task_ack(seq_number, addr)
 
-            # Execute the task using the MetricCollector
-            metric_collector = MetricCollector()
-            results = self.execute_task(task, metric_collector)
-
-            # Send the task results back to the server
-            self.send_results_to_server(seq_number, results, addr)
+            # Start periodic execution of the task
+            self.execute_task_periodically(task, seq_number, addr)
 
         except struct.error as e:
             print(f"[DEBUG] Struct unpacking error: {e}")
@@ -181,6 +215,7 @@ class NMS_Agent:
             print(f"[DEBUG] JSON decoding error: {e}")
         except Exception as e:
             print(f"[DEBUG] Error processing task: {e}")
+
 
 
     def send_results_to_server(self, seq_number, results, addr):

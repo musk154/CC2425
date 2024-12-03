@@ -1,41 +1,60 @@
 import subprocess
+import psutil
 
 class MetricCollector:
     def collect_cpu_usage(self):
         """
-        Simulate the collection of CPU usage.
+        Collect real CPU usage using psutil.
+
         Returns:
-            str: Simulated CPU usage percentage.
+            dict: A dictionary containing the CPU usage percentage.
         """
-        return "Simulated CPU Usage: 45%"
+        try:
+            cpu_usage = psutil.cpu_percent(interval=1)  # Get CPU usage over a 1-second interval
+            return {"status": "success", "cpu_usage": f"{cpu_usage:.2f}%"}
+        except Exception as e:
+            return {"status": "failure", "error": str(e)}
 
     def collect_ram_usage(self):
         """
-        Simulate the collection of RAM usage.
+        Collect real RAM usage using psutil.
+
         Returns:
-            str: Simulated RAM usage percentage.
+            dict: A dictionary containing the RAM usage percentage.
         """
-        return "Simulated RAM Usage: 65%"
+        try:
+            memory = psutil.virtual_memory()  # Get virtual memory stats
+            ram_usage = memory.percent  # Get the percentage of RAM used
+            return {"status": "success", "ram_usage": f"{ram_usage:.2f}%"}
+        except Exception as e:
+            return {"status": "failure", "error": str(e)}
 
     def collect_interface_stats(self, interfaces):
         """
-        Simulate the collection of network interface statistics.
+        Simulate interface statistics collection for the provided interfaces.
 
         Args:
-            interfaces (list): List of network interfaces.
+            interfaces (list): List of interface names.
 
         Returns:
-            dict: Simulated statistics for each interface.
+            dict: A dictionary with interface stats for each interface.
         """
-        stats = {}
-        for interface in interfaces:
-            stats[interface] = {
-                "tx_packets": 1000,  # Simulated transmitted packets
-                "rx_packets": 900,   # Simulated received packets
-                "tx_bytes": 1000000, # Simulated transmitted bytes
-                "rx_bytes": 950000   # Simulated received bytes
-            }
-        return stats
+        try:
+            stats = psutil.net_io_counters(pernic=True)  # Per-interface network stats
+            interface_data = {}
+            for iface in interfaces:
+                if iface in stats:
+                    interface_data[iface] = {
+                        "tx_packets": stats[iface].packets_sent,
+                        "rx_packets": stats[iface].packets_recv,
+                        "tx_bytes": stats[iface].bytes_sent,
+                        "rx_bytes": stats[iface].bytes_recv
+                    }
+                else:
+                    interface_data[iface] = {"status": "failure", "error": "Interface not found"}
+            return {"status": "success", "interface_stats": interface_data}
+        except Exception as e:
+            return {"status": "failure", "error": str(e)}
 
     def ping(self, destination, packet_count):
         """
