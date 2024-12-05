@@ -85,50 +85,52 @@ class MetricCollector:
             return {"error": str(e), "status": "failure"}
 
 
-    def iperf(self, server, role, duration, protocol):
+    def iperf(self, server, role="client", duration=10, protocol="tcp"):
         """
-        Execute the iperf command for bandwidth and jitter analysis.
+        Run iperf3 and collect results.
 
         Args:
-            server (str): Server address.
-            role (str): 'client'.
-            duration (int): Duration of the test in seconds.
-            protocol (str): 'TCP' or 'UDP'.
+            server (str): The server address for the iperf3 test.
+            role (str): The role of the iperf3 instance ('client' or 'server').
+            duration (int): Duration of the iperf3 test in seconds.
+            protocol (str): Protocol to use ('tcp' or 'udp').
 
         Returns:
-            dict: Results of the iperf command.
+            dict: Parsed iperf3 results or an error message.
         """
+        command = ["iperf3", f"--{role}", server, "--time", str(duration), "--format", "m"]
+        if protocol == "udp":
+            command.append("--udp")  # Add --udp flag for UDP tests
+
+        print(f"[DEBUG] Running command: {' '.join(command)}")
+
         try:
-            # Ensure the role is client
-            if role != "client":
-                return {"error": "Invalid role. Only 'client' is supported for tasks.", "status": "failure"}
-
-            # Build the iperf3 command
-            command = [
-                "iperf3",
-                "--client", server,
-                "--time", str(duration),
-                "--format", "m"  # Use megabits as the output format
-            ]
-            if protocol.upper() == "UDP":
-                command.append("--udp")
-
-            print(f"[DEBUG] Running command: {' '.join(command)}")
-
-            # Run the iperf3 client command
-            result = subprocess.run(command, capture_output=True, text=True)
-
-            # Check the result
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=duration + 5
+            )
             if result.returncode == 0:
-                # Parse the output and return cleaned results
-                cleaned_results = self._parse_iperf_output(result.stdout)
-                return {"results": cleaned_results, "status": "success"}
+                print(f"[DEBUG] Raw iperf output:\n{result.stdout}")
+                parsed_results = self._parse_iperf_output(result.stdout)
+                print(f"[DEBUG] Parsed iperf results: {parsed_results}")
+                return {
+                    "status": "success",
+                    "results": parsed_results
+                }
             else:
-                # Log the error details for debugging
-                print(f"[DEBUG] Command failed with stderr: {result.stderr.strip()}")
-                return {"error": result.stderr.strip(), "status": "failure"}
+                print(f"[DEBUG] Iperf error output:\n{result.stderr}")
+                return {
+                    "status": "failure",
+                    "error": result.stderr.strip()
+                }
         except Exception as e:
-            return {"error": str(e), "status": "failure"}
+            print(f"[DEBUG] Exception during iperf execution: {e}")
+            return {
+                "status": "failure",
+                "error": str(e)
+            }
 
     def _parse_iperf_output(self, output):
         """
@@ -140,31 +142,32 @@ class MetricCollector:
         Returns:
             dict: Parsed metrics including transfer, bitrate, jitter, and packet loss.
         """
+        metrics = {}
         try:
-            metrics = {}
+            # Extract transfer and bitrate (from the receiver summary)
+            transfer_match = re.search(r"(\d+\.?\d*)\s([KMGT]?)Bytes\s+(\d+\.?\d*)\s([KMGT]?bits/sec)", output)
+            if transfer_match:
+                metrics["transfer"] = f"{transfer_match.group(1)} {transfer_match.group(2)}Bytes"
+                metrics["bitrate"] = f"{transfer_match.group(3)} {transfer_match.group(4)}"
 
-            # Extract sender transfer and bitrate
-            sender_match = re.search(
-                r"(\d+\.?\d*)\s([KMGT]?)Bytes\s+(\d+\.?\d*)\s([KMGT]?bits/sec)", output
+            # Extract jitter, lost packets, and total packets (from the receiver summary)
+            summary_match = re.search(
+                r"\s+(\d+\.\d+)\sms\s+(\d+)/(\d+)\s+\(\d+%?\)\s+receiver", output
             )
-            if sender_match:
-                metrics["transfer"] = f"{sender_match.group(1)} {sender_match.group(2)}Bytes"
-                metrics["bitrate"] = f"{sender_match.group(3)} {sender_match.group(4)}"
-
-            # Extract jitter, lost packets, and total packets
-            jitter_match = re.search(
-                r"Jitter\s+(\d+\.?\d*)\s?ms\s+(\d+)/(\d+)\s+\(\d+%?\)", output
-            )
-            if jitter_match:
-                metrics["jitter"] = f"{jitter_match.group(1)} ms"
-                metrics["packet_loss"] = f"{jitter_match.group(2)}/{jitter_match.group(3)}"
-
-            return metrics
+            if summary_match:
+                metrics["jitter"] = f"{summary_match.group(1)} ms"
+                metrics["packet_loss"] = f"{summary_match.group(2)}/{summary_match.group(3)}"
 
         except Exception as e:
             print(f"[DEBUG] Error parsing iperf3 output: {e}")
-            return {"error": "Failed to parse iperf3 output"}
+            return {
+                "status": "failure",
+                "error": f"Error parsing iperf3 output: {str(e)}"
+            }
 
+        # Return parsed metrics
+        print(f"[DEBUG] Parsed metrics: {metrics}")
+        return metrics
 
     def _extract_latency(self, ping_output):
         """

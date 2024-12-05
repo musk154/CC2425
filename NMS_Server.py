@@ -9,72 +9,81 @@ from task_parser import TaskJSONParser
 
 
 def format_task_results(results):
-        """
-        Format the task results into a user-friendly, readable format.
+    """
+    Format the task results into a user-friendly, readable format.
 
-        Args:
-            results (dict): The raw results dictionary.
+    Args:
+        results (dict): The raw results dictionary.
 
-        Returns:
-            str: A formatted string for user-friendly display.
-        """
-        formatted_output = []
+    Returns:
+        str: A formatted string for user-friendly display.
+    """
+    formatted_output = []
 
-        # Device ID
-        device_id = results.get("device_id", "Unknown")
-        formatted_output.append(f"Device ID: {device_id}")
+    # Device ID
+    device_id = results.get("device_id", "Unknown")
+    formatted_output.append(f"Device ID: {device_id}")
 
-        # Overall status
-        status = results.get("status", "Unknown")
-        formatted_output.append(f"Status: {status}")
+    # Overall status
+    status = results.get("status", "Unknown")
+    formatted_output.append(f"Status: {status}")
 
-        # CPU Usage
-        cpu = results.get("results", {}).get("cpu_usage", {})
-        if cpu.get("status") == "success":
-            formatted_output.append(f"  CPU Usage: {cpu.get('cpu_usage')}")
-        else:
-            formatted_output.append("  CPU Usage: Failed to collect data")
+    # CPU Usage
+    cpu = results.get("results", {}).get("cpu_usage", {})
+    if isinstance(cpu, dict) and cpu.get("status") == "success":
+        formatted_output.append(f"  CPU Usage: {cpu.get('cpu_usage')}")
+    else:
+        formatted_output.append("  CPU Usage: Failed to collect data")
 
-        # RAM Usage
-        ram = results.get("results", {}).get("ram_usage", {})
-        if ram.get("status") == "success":
-            formatted_output.append(f"  RAM Usage: {ram.get('ram_usage')}")
-        else:
-            formatted_output.append("  RAM Usage: Failed to collect data")
+    # RAM Usage
+    ram = results.get("results", {}).get("ram_usage", {})
+    if isinstance(ram, dict) and ram.get("status") == "success":
+        formatted_output.append(f"  RAM Usage: {ram.get('ram_usage')}")
+    else:
+        formatted_output.append("  RAM Usage: Failed to collect data")
 
-        # Interface Statistics
-        interface_stats = results.get("results", {}).get("interface_stats", {})
-        if interface_stats.get("status") == "success":
-            formatted_output.append("  Network Interfaces:")
-            for iface, stats in interface_stats.get("interface_stats", {}).items():
-                if stats.get("status") == "failure":
-                    formatted_output.append(f"    {iface}: {stats.get('error')}")
-                else:
-                    formatted_output.append(
-                        f"    {iface}: TX Packets: {stats['tx_packets']}, "
-                        f"RX Packets: {stats['rx_packets']}, "
-                        f"Total Packets: {stats['total_packets']}"
-                    )
-        else:
-            formatted_output.append("  Network Interfaces: Failed to collect data")
+    # Interface Statistics
+    interface_stats = results.get("results", {}).get("interface_stats", {})
+    if isinstance(interface_stats, dict) and interface_stats.get("status") == "success":
+        formatted_output.append("  Network Interfaces:")
+        for iface, stats in interface_stats.get("interface_stats", {}).items():
+            if isinstance(stats, dict) and stats.get("status") == "failure":
+                formatted_output.append(f"    {iface}: {stats.get('error')}")
+            else:
+                formatted_output.append(
+                    f"    {iface}: TX Packets: {stats['tx_packets']}, "
+                    f"RX Packets: {stats['rx_packets']}, "
+                    f"Total Packets: {stats['total_packets']}"
+                )
+    else:
+        formatted_output.append("  Network Interfaces: Failed to collect data")
 
-        # Latency
-        latency = results.get("results", {}).get("latency", {})
-        if latency.get("status") == "success":
-            formatted_output.append(f"  Latency: {latency.get('latency')} ms")
-        else:
-            formatted_output.append("  Latency: Failed to collect data")
+    # Latency
+    latency = results.get("results", {}).get("latency", {})
+    if isinstance(latency, dict) and latency.get("status") == "success":
+        formatted_output.append(f"  Latency: {latency.get('latency')} ms")
+    else:
+        formatted_output.append("  Latency: Failed to collect data")
 
-        # Packet Loss and Bandwidth
-        packet_loss = results.get("results", {}).get("packet_loss", {})
-        if packet_loss.get("status") == "success":
-            pl_results = packet_loss.get("results", {})
-            formatted_output.append(f"  Bandwidth: {pl_results.get('transfer', 'N/A')} transferred, "
-                                    f"{pl_results.get('bitrate', 'N/A')} bitrate")
-        else:
-            formatted_output.append("  Bandwidth: Failed to collect data")
+    # Iperf Results (Packet Loss, Bandwidth, Jitter)
+    iperf_results = results.get("results", {}).get("iperf", {})
+    if isinstance(iperf_results, dict) and iperf_results.get("status") == "success":
+        # Extract individual iperf metrics
+        pl_results = iperf_results.get("results", {})
+        transfer = pl_results.get("transfer", "N/A")
+        bitrate = pl_results.get("bitrate", "N/A")
+        jitter = pl_results.get("jitter", "N/A")
+        packet_loss = pl_results.get("packet_loss", "N/A")
 
-        return "\n".join(formatted_output)
+        formatted_output.append(f"  Bandwidth: {transfer} transferred, {bitrate} bitrate")
+        formatted_output.append(f"  Jitter: {jitter}")
+        formatted_output.append(f"  Packet Loss: {packet_loss}")
+    else:
+        formatted_output.append("  Bandwidth, Jitter, and Packet Loss: Failed to collect data")
+
+    return "\n".join(formatted_output)
+
+
 
 class NMS_Server:
     
@@ -89,20 +98,21 @@ class NMS_Server:
 
     def start_iperf3_server(self):
         """
-        Start the iperf3 server in the background.
+        Start the iperf3 server in the background with support for UDP.
         """
         try:
-            print("[iperf3] Starting iperf3 server...")
+            print("[iperf3] Starting iperf3 server with UDP support...")
             self.iperf3_process = subprocess.Popen(
                 ["iperf3", "--server"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
-            print("[iperf3] iperf3 server started successfully.")
+            print("[iperf3] iperf3 server started successfully with UDP support.")
         except FileNotFoundError:
             print("[iperf3] Error: iperf3 is not installed or not in PATH.")
         except Exception as e:
             print(f"[iperf3] Failed to start iperf3 server: {e}")
+
 
     def stop_iperf3_server(self):
         """
@@ -374,3 +384,5 @@ if __name__ == "__main__":
     server = NMS_Server(ip, port)
     server.load_tasks(TaskJSONParser("tarefa01.json"))
     server.start_servers()
+
+    

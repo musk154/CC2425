@@ -100,7 +100,7 @@ class NMS_Agent:
 
         Args:
             task (dict): The task details, as decoded from the server's message.
-            metric_collector (MetricCollector): An instance of MetricCollector for simulating task execution.
+            metric_collector (MetricCollector): An instance of MetricCollector for task execution.
 
         Returns:
             dict: The results of the executed task.
@@ -117,8 +117,11 @@ class NMS_Agent:
             "status": "success"
         }
 
+        # Initialize a cache for iperf results to avoid multiple executions
+        iperf_results_cache = None
+
         try:
-            # Simulate device metrics collection
+            # Collect device metrics selectively
             if "cpu_usage" in device_metrics and device_metrics["cpu_usage"]:
                 results["results"]["cpu_usage"] = metric_collector.collect_cpu_usage()
             if "ram_usage" in device_metrics and device_metrics["ram_usage"]:
@@ -127,30 +130,60 @@ class NMS_Agent:
                 interfaces = device_metrics["interface_stats"]
                 results["results"]["interface_stats"] = metric_collector.collect_interface_stats(interfaces)
 
-            # Simulate link metrics collection
+            # Collect link metrics selectively
             for metric, params in link_metrics.items():
                 if metric == "latency":
+                    # Run ping for latency
                     results["results"]["latency"] = metric_collector.ping(
                         destination=params["destination"],
                         packet_count=params["packet_count"]
-                    )
-                elif metric == "packet_loss":
-                    results["results"]["packet_loss"] = metric_collector.iperf(
-                        server=params["server_address"],
-                        role=params["role"],
-                        duration=params["duration"],
-                        protocol=params["transport_type"]
-                    )
+                                    )
+                                # Run iperf and store the results under "iperf" key
+                if metric in ["packet_loss", "bandwidth", "jitter"]:
+                    try:
+                        # Ensure params is properly initialized and protocol is assigned
+                        protocol = params.get("transport_type", "UDP").lower()
 
+                        if not iperf_results_cache:
+                            print(f"[DEBUG] Running iperf for link metrics with protocol: {protocol}...")
+                            iperf_results = metric_collector.iperf(
+                                server=params["server_address"],
+                                role=params["role"],
+                                duration=params["duration"],
+                                protocol=protocol
+                            )
+                            print(f"[DEBUG] Iperf results: {iperf_results}")
+                            if iperf_results.get("status") == "success":
+                                # Cache the full iperf results for this task execution
+                                iperf_results_cache = iperf_results.get("results", {})
+                                # Store the full iperf results in the results dictionary
+                                results["results"]["iperf"] = iperf_results  # Add the entire iperf dictionary
+                            else:
+                                results["results"]["iperf"] = {
+                                    "status": "failure",
+                                    "error": iperf_results.get("error", "Unknown error")
+                                }
+                                continue
+
+                        # Use cached iperf results for the current metric
+                        if iperf_results_cache:
+                            results["results"][metric] = iperf_results_cache.get(metric, "N/A")
+
+                    except KeyError as e:
+                        print(f"[DEBUG] Missing key in task parameters: {e}")
+                        results["results"]["iperf"] = {
+                            "status": "failure",
+                            "error": f"Missing parameter: {e}"
+                        }
         except Exception as e:
-            # Log and include the error in the results
-            print(f"[DEBUG] Error executing task: {e}")
-            results["status"] = "failure"
-            results["error"] = str(e)
+            print(f"[DEBUG] Error executing iperf for {metric}: {e}")
+            results["results"]["iperf"] = {
+                "status": "failure",
+                "error": str(e)
+            }
+
 
         return results
-
-    
 
     def execute_task_periodically(self, task, seq_number, addr):
         """
@@ -161,19 +194,15 @@ class NMS_Agent:
             seq_number (int): The sequence number of the task.
             addr (tuple): The server address.
         """
-        frequency = task.get("frequency")  # Frequency passed by the server
-        if frequency is None or not isinstance(frequency, (int, float)) or frequency <= 0:
-            print("[DEBUG] Invalid or missing frequency in task. Defaulting to 20 seconds.")
-            frequency = 20  # Default to 20 seconds if invalid or missing
-
+        frequency = task.get("frequency") or 20  # Default to 20 seconds if missing or invalid
         device_id = task.get("device_id")
-        metric_collector = MetricCollector()  # Instantiate MetricCollector
+        metric_collector = MetricCollector()
 
         print(f"[UDP] Starting periodic execution for device: {device_id}, frequency: {frequency} seconds")
 
         try:
             while True:
-                # Execute the task
+                # Execute the task (iperf is handled internally in execute_task)
                 results = self.execute_task(task, metric_collector)
 
                 # Format and print the results
@@ -192,8 +221,8 @@ class NMS_Agent:
             print(f"[UDP] Stopping periodic execution for device: {device_id}")
         except Exception as e:
             print(f"[DEBUG] Error during periodic execution for {device_id}: {e}")
-    
 
+    
     def format_task_results(self, results):
         """
         Format the task results into a user-friendly, readable format.
@@ -216,24 +245,24 @@ class NMS_Agent:
 
         # CPU Usage
         cpu = results.get("results", {}).get("cpu_usage", {})
-        if cpu.get("status") == "success":
+        if isinstance(cpu, dict) and cpu.get("status") == "success":
             formatted_output.append(f"  CPU Usage: {cpu.get('cpu_usage')}")
         else:
             formatted_output.append("  CPU Usage: Failed to collect data")
 
         # RAM Usage
         ram = results.get("results", {}).get("ram_usage", {})
-        if ram.get("status") == "success":
+        if isinstance(ram, dict) and ram.get("status") == "success":
             formatted_output.append(f"  RAM Usage: {ram.get('ram_usage')}")
         else:
             formatted_output.append("  RAM Usage: Failed to collect data")
 
         # Interface Statistics
         interface_stats = results.get("results", {}).get("interface_stats", {})
-        if interface_stats.get("status") == "success":
+        if isinstance(interface_stats, dict) and interface_stats.get("status") == "success":
             formatted_output.append("  Network Interfaces:")
             for iface, stats in interface_stats.get("interface_stats", {}).items():
-                if stats.get("status") == "failure":
+                if isinstance(stats, dict) and stats.get("status") == "failure":
                     formatted_output.append(f"    {iface}: {stats.get('error')}")
                 else:
                     formatted_output.append(
@@ -246,19 +275,26 @@ class NMS_Agent:
 
         # Latency
         latency = results.get("results", {}).get("latency", {})
-        if latency.get("status") == "success":
+        if isinstance(latency, dict) and latency.get("status") == "success":
             formatted_output.append(f"  Latency: {latency.get('latency')} ms")
         else:
             formatted_output.append("  Latency: Failed to collect data")
 
-        # Packet Loss and Bandwidth
-        packet_loss = results.get("results", {}).get("packet_loss", {})
-        if packet_loss.get("status") == "success":
-            pl_results = packet_loss.get("results", {})
-            formatted_output.append(f"  Bandwidth: {pl_results.get('transfer', 'N/A')} transferred, "
-                                    f"{pl_results.get('bitrate', 'N/A')} bitrate")
+        # Iperf Results (Packet Loss, Bandwidth, Jitter)
+        iperf_results = results.get("results", {}).get("iperf", {})
+        if isinstance(iperf_results, dict) and iperf_results.get("status") == "success":
+            # Extract individual iperf metrics
+            pl_results = iperf_results.get("results", {})
+            transfer = pl_results.get("transfer", "N/A")
+            bitrate = pl_results.get("bitrate", "N/A")
+            jitter = pl_results.get("jitter", "N/A")
+            packet_loss = pl_results.get("packet_loss", "N/A")
+
+            formatted_output.append(f"  Bandwidth: {transfer} transferred, {bitrate} bitrate")
+            formatted_output.append(f"  Jitter: {jitter}")
+            formatted_output.append(f"  Packet Loss: {packet_loss}")
         else:
-            formatted_output.append("  Bandwidth: Failed to collect data")
+            formatted_output.append("  Bandwidth, Jitter, and Packet Loss: Failed to collect data")
 
         return "\n".join(formatted_output)
 
