@@ -169,6 +169,9 @@ class MetricCollector:
         print(f"[DEBUG] Parsed metrics: {metrics}")
         return metrics
 
+
+
+
     def _extract_latency(self, ping_output):
         """
         Extract latency from ping output.

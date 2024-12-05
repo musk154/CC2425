@@ -315,39 +315,28 @@ class NMS_Server:
 
     
     
-    def handle_task_result(self, data, client_address):
+    def handle_task_result(self, data, addr):
         """
-        Handle task result message from the agent.
+        Handle task results received from an agent.
+
         Args:
-            data (bytes): The data received from the agent.
-            client_address (tuple): The address of the agent sending the result.
+            data (bytes): The raw data received from the agent.
+            addr (tuple): The address of the agent.
         """
         try:
-            # Verify message type
-            msg_type = data[:4].decode('utf-8').strip('\x00')
-            if msg_type != "TRES":
-                print(f"[UDP] Unexpected message type: {msg_type}")
+            # Parse the received message
+            header, seq_number = struct.unpack("!4sI", data[:8])
+            if header != b"TRES":
+                print(f"[UDP] Invalid header received from {addr}: {header}")
                 return
 
-            # Decode sequence number and task result JSON
-            seq_number, = struct.unpack("!I", data[4:8])
-            result_data = json.loads(data[8:].decode('utf-8'))
-            # Format the results
-            formatted_results = format_task_results(result_data)
+            # The rest is the formatted task results
+            formatted_results = data[8:].decode('utf-8')
+            print(f"[UDP] Received task results seq {seq_number} from {addr}:\n{formatted_results}")
 
-            # Print the formatted results
-            print(f"[UDP] Received task result seq {seq_number} from {client_address}:\n{formatted_results}")
-
-
-            # Store or log the result for further processing
-            self.store_results(client_address, seq_number, result_data)
-
-        except json.JSONDecodeError as e:
-            print(f"[UDP] Error decoding JSON: {e}")
-        except struct.error as e:
-            print(f"[UDP] Struct unpacking error: {e}")
         except Exception as e:
-            print(f"[UDP] Error handling task result: {e}")
+            print(f"[UDP] Error handling task results from {addr}: {e}")
+
 
     
 

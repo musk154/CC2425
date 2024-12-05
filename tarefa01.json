@@ -18,7 +18,7 @@
                         "server_address": "x",
                         "duration": 10,
                         "transport_type": "UDP",
-                        "frequency": 20
+                        "frequency": 10
                     },
                     "jitter": {
                         "tool": "iperf",
@@ -80,7 +80,7 @@
                 "link_metrics": {
                     "bandwidth": {
                         "tool": "iperf",
-                        "role": "server",
+                        "role": "client",
                         "server_address": "x",
                         "duration": 10,
                         "transport_type": "UDP",
@@ -94,10 +94,9 @@
                     },
                     "alertflow_conditions": {
                         "cpu_usage": 90,
-                        "ram_usage": 95,
-                        "interface_stats": 3000,
-                        "packet_loss": 8,
-                        "jitter": 150
+                        "interface_stats": 3000
+                        
+                        
                     }
                 }
             }

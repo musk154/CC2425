@@ -198,6 +198,9 @@ class NMS_Agent:
         device_id = task.get("device_id")
         metric_collector = MetricCollector()
 
+        # Extract the required link metrics from the task
+        link_metrics = task.get("link_metrics", {})
+
         print(f"[UDP] Starting periodic execution for device: {device_id}, frequency: {frequency} seconds")
 
         try:
@@ -205,13 +208,8 @@ class NMS_Agent:
                 # Execute the task (iperf is handled internally in execute_task)
                 results = self.execute_task(task, metric_collector)
 
-                # Format and print the results
-                formatted_results = self.format_task_results(results)
-                print("[DEBUG] Formatted task results:")
-                print(formatted_results)
-
-                # Send the task results back to the server
-                self.send_results_to_server(seq_number, results, addr)
+                # Send the formatted task results back to the server
+                self.send_results_to_server(seq_number, results, addr, link_metrics)
 
                 # Wait for the next execution
                 print(f"[UDP] Waiting {frequency} seconds before the next execution...")
@@ -222,13 +220,16 @@ class NMS_Agent:
         except Exception as e:
             print(f"[DEBUG] Error during periodic execution for {device_id}: {e}")
 
-    
-    def format_task_results(self, results):
+
+
+
+    def format_task_results(self, results, link_metrics):
         """
         Format the task results into a user-friendly, readable format.
 
         Args:
             results (dict): The raw results dictionary.
+            link_metrics (dict): The link metrics from the JSON configuration.
 
         Returns:
             str: A formatted string for user-friendly display.
@@ -280,23 +281,27 @@ class NMS_Agent:
         else:
             formatted_output.append("  Latency: Failed to collect data")
 
-        # Iperf Results (Packet Loss, Bandwidth, Jitter)
+        # Iperf Results (Include Only Required Metrics)
         iperf_results = results.get("results", {}).get("iperf", {})
         if isinstance(iperf_results, dict) and iperf_results.get("status") == "success":
             # Extract individual iperf metrics
             pl_results = iperf_results.get("results", {})
-            transfer = pl_results.get("transfer", "N/A")
-            bitrate = pl_results.get("bitrate", "N/A")
-            jitter = pl_results.get("jitter", "N/A")
-            packet_loss = pl_results.get("packet_loss", "N/A")
-
-            formatted_output.append(f"  Bandwidth: {transfer} transferred, {bitrate} bitrate")
-            formatted_output.append(f"  Jitter: {jitter}")
-            formatted_output.append(f"  Packet Loss: {packet_loss}")
+            if "packet_loss" in link_metrics:
+                packet_loss = pl_results.get("packet_loss", "N/A")
+                formatted_output.append(f"  Packet Loss: {packet_loss}")
+            if "bandwidth" in link_metrics:
+                transfer = pl_results.get("transfer", "N/A")
+                bitrate = pl_results.get("bitrate", "N/A")
+                formatted_output.append(f"  Bandwidth: {transfer} transferred, {bitrate} bitrate")
+            if "jitter" in link_metrics:
+                jitter = pl_results.get("jitter", "N/A")
+                formatted_output.append(f"  Jitter: {jitter}")
         else:
             formatted_output.append("  Bandwidth, Jitter, and Packet Loss: Failed to collect data")
 
         return "\n".join(formatted_output)
+
+
 
     
     def process_task(self, data, addr):
@@ -328,7 +333,7 @@ class NMS_Agent:
 
 
 
-    def send_results_to_server(self, seq_number, results, addr):
+    def send_results_to_server(self, seq_number, results, addr, link_metrics):
         """
         Send the task results back to the server.
 
@@ -336,21 +341,21 @@ class NMS_Agent:
             seq_number (int): Sequence number of the task.
             results (dict): Task results to send.
             addr (tuple): Server address (IP, port).
+            link_metrics (dict): Link metrics required from the task configuration.
         """
         try:
-            # Format results for readability
-            formatted_results = self.format_task_results(results)
-            print("[DEBUG] Formatted task results:")
+            # Format results on the agent side (only include required link metrics)
+            formatted_results = self.format_task_results(results, link_metrics)
+            print("[DEBUG] Formatted task results (Agent Side):")
             print(formatted_results)
 
-            # Serialize the results and send them to the server
-            result_binary = json.dumps(results).encode('utf-8')
-            message = struct.pack("!4sI", b"TRES", seq_number) + result_binary
+            # Send only the formatted results as a string to the server
+            message = struct.pack("!4sI", b"TRES", seq_number) + formatted_results.encode('utf-8')
 
             # Ensure results are sent to the server's listening port (12345)
             server_address = (self.server_ip, 12345)
             self.udp_socket.sendto(message, server_address)
-            print(f"[UDP] Sent task results seq {seq_number} to {server_address}")
+            print(f"[UDP] Sent formatted task results seq {seq_number} to {server_address}")
         except Exception as e:
             print(f"[UDP] Error sending results to server: {e}")
 
