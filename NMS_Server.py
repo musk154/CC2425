@@ -7,84 +7,6 @@ import json
 from task_parser import TaskJSONParser
 
 
-
-def format_task_results(results):
-    """
-    Format the task results into a user-friendly, readable format.
-
-    Args:
-        results (dict): The raw results dictionary.
-
-    Returns:
-        str: A formatted string for user-friendly display.
-    """
-    formatted_output = []
-
-    # Device ID
-    device_id = results.get("device_id", "Unknown")
-    formatted_output.append(f"Device ID: {device_id}")
-
-    # Overall status
-    status = results.get("status", "Unknown")
-    formatted_output.append(f"Status: {status}")
-
-    # CPU Usage
-    cpu = results.get("results", {}).get("cpu_usage", {})
-    if isinstance(cpu, dict) and cpu.get("status") == "success":
-        formatted_output.append(f"  CPU Usage: {cpu.get('cpu_usage')}")
-    else:
-        formatted_output.append("  CPU Usage: Failed to collect data")
-
-    # RAM Usage
-    ram = results.get("results", {}).get("ram_usage", {})
-    if isinstance(ram, dict) and ram.get("status") == "success":
-        formatted_output.append(f"  RAM Usage: {ram.get('ram_usage')}")
-    else:
-        formatted_output.append("  RAM Usage: Failed to collect data")
-
-    # Interface Statistics
-    interface_stats = results.get("results", {}).get("interface_stats", {})
-    if isinstance(interface_stats, dict) and interface_stats.get("status") == "success":
-        formatted_output.append("  Network Interfaces:")
-        for iface, stats in interface_stats.get("interface_stats", {}).items():
-            if isinstance(stats, dict) and stats.get("status") == "failure":
-                formatted_output.append(f"    {iface}: {stats.get('error')}")
-            else:
-                formatted_output.append(
-                    f"    {iface}: TX Packets: {stats['tx_packets']}, "
-                    f"RX Packets: {stats['rx_packets']}, "
-                    f"Total Packets: {stats['total_packets']}"
-                )
-    else:
-        formatted_output.append("  Network Interfaces: Failed to collect data")
-
-    # Latency
-    latency = results.get("results", {}).get("latency", {})
-    if isinstance(latency, dict) and latency.get("status") == "success":
-        formatted_output.append(f"  Latency: {latency.get('latency')} ms")
-    else:
-        formatted_output.append("  Latency: Failed to collect data")
-
-    # Iperf Results (Packet Loss, Bandwidth, Jitter)
-    iperf_results = results.get("results", {}).get("iperf", {})
-    if isinstance(iperf_results, dict) and iperf_results.get("status") == "success":
-        # Extract individual iperf metrics
-        pl_results = iperf_results.get("results", {})
-        transfer = pl_results.get("transfer", "N/A")
-        bitrate = pl_results.get("bitrate", "N/A")
-        jitter = pl_results.get("jitter", "N/A")
-        packet_loss = pl_results.get("packet_loss", "N/A")
-
-        formatted_output.append(f"  Bandwidth: {transfer} transferred, {bitrate} bitrate")
-        formatted_output.append(f"  Jitter: {jitter}")
-        formatted_output.append(f"  Packet Loss: {packet_loss}")
-    else:
-        formatted_output.append("  Bandwidth, Jitter, and Packet Loss: Failed to collect data")
-
-    return "\n".join(formatted_output)
-
-
-
 class NMS_Server:
     
     def __init__(self, ip, port=12345):
@@ -200,13 +122,13 @@ class NMS_Server:
         """
         # Start the iperf3 server
         self.start_iperf3_server()
-        udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
-            udp_socket.bind((self.ip, self.port))  # Bind to port 12345
+            self.udp_socket.bind((self.ip, self.port))  # Bind to port 12345
             print(f"[UDP] Server listening on {self.ip}:{self.port}...")
 
             while True:
-                data, client_address = udp_socket.recvfrom(4096)
+                data, client_address = self.udp_socket.recvfrom(4096)
                 
 
                 try:
@@ -219,7 +141,7 @@ class NMS_Server:
                         seq_number, = struct.unpack("!I", data[4:8])
                         print(f"[UDP] Received task ACK for seq {seq_number}")
                     elif message_type == "TRES":
-                        self.handle_task_result(data, client_address)
+                        self.handle_task_results(data, client_address)
                     else:
                         print(f"[UDP] Unknown message type: {message_type}")
                 except Exception as e:
@@ -227,7 +149,7 @@ class NMS_Server:
         except Exception as e:
             print(f"[UDP] Server error: {e}")
         finally:
-            udp_socket.close()
+            self.udp_socket.close()
 
     def send_task_to_agent(self, agent_id):
         """
@@ -312,7 +234,7 @@ class NMS_Server:
             print(f"[UDP] Error handling ACK: {e}")
  
     
-    def handle_task_result(self, data, addr):
+    def handle_task_results(self, data, addr):
         """
         Handle task results received from an agent.
 
@@ -331,9 +253,13 @@ class NMS_Server:
             formatted_results = data[8:].decode('utf-8')
             print(f"[UDP] Received task results seq {seq_number} from {addr}:\n{formatted_results}")
 
+            # Send an acknowledgment (ACK) back to the agent
+            ack_message = struct.pack("!4sI", b"TACK", seq_number)
+            self.udp_socket.sendto(ack_message, addr)
+            print(f"[UDP] Sent ACK for seq {seq_number} to {addr}")
+
         except Exception as e:
             print(f"[UDP] Error handling task results from {addr}: {e}")
-
 
     
 

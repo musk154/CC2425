@@ -235,15 +235,12 @@ class NMS_Agent:
         except Exception as e:
             print(f"[DEBUG] Error during periodic execution for {device_id}: {e}")
 
-
-
-
     def format_task_results(self, results, link_metrics):
         """
         Format the task results into a user-friendly, readable format.
 
         Args:
-            results (dict): The raw results dictionary.
+            results (dict): The filtered results dictionary.
             link_metrics (dict): The link metrics from the JSON configuration.
 
         Returns:
@@ -289,38 +286,35 @@ class NMS_Agent:
         else:
             formatted_output.append("  Network Interfaces: Failed to collect data")
 
-        
         # Latency
-        latency = results.get("results", {}).get("latency", {})
         if "latency" in link_metrics:
+            latency = results.get("results", {}).get("latency", {})
             if isinstance(latency, dict) and latency.get("status") == "success":
                 latency_value = latency.get("latency", "N/A")
                 formatted_output.append(f"  Latency: {latency_value} ms")
             elif latency.get("status") == "failure":
                 formatted_output.append("  Latency: Failed to collect data")
-        else:
-            print("[DEBUG] Latency metric not in link_metrics; skipping display.")
 
-
-        # Iperf Results (Include Only Required Metrics)
-        iperf_results = results.get("results", {}).get("iperf", {})
-        if isinstance(iperf_results, dict) and iperf_results.get("status") == "success":
-            # Extract individual iperf metrics
-            pl_results = iperf_results.get("results", {})
+        # Iperf Results
+        if "packet_loss" in link_metrics or "jitter" in link_metrics or "bandwidth" in link_metrics:
             if "packet_loss" in link_metrics:
-                packet_loss = pl_results.get("packet_loss", "N/A")
-                formatted_output.append(f"  Packet Loss: {packet_loss}")
-            if "bandwidth" in link_metrics:
-                transfer = pl_results.get("transfer", "N/A")
-                bitrate = pl_results.get("bitrate", "N/A")
-                formatted_output.append(f"  Bandwidth: {transfer} transferred, {bitrate} bitrate")
+                packet_loss = results.get("results", {}).get("packet_loss", "N/A")
+                if packet_loss != "N/A" and "/" in packet_loss:
+                    # Calculate packet loss percentage
+                    lost, total = map(int, packet_loss.split("/"))
+                    loss_percentage = (lost / total) * 100 if total > 0 else 0
+                    formatted_output.append(f"  Packet Loss: {packet_loss} ({loss_percentage:.2f}%)")
+                else:
+                    formatted_output.append(f"  Packet Loss: {packet_loss}")
             if "jitter" in link_metrics:
-                jitter = pl_results.get("jitter", "N/A")
-                formatted_output.append(f"  Jitter: {jitter}")
-        else:
-            formatted_output.append("  Bandwidth, Jitter, and Packet Loss: Failed to collect data")
+                jitter = results.get("results", {}).get("jitter", "N/A")
+                formatted_output.append(f"  Jitter: {jitter} ms")
+            if "bandwidth" in link_metrics:
+                bandwidth = results.get("results", {}).get("bandwidth", "N/A")
+                formatted_output.append(f"  Bandwidth: {bandwidth}")
 
         return "\n".join(formatted_output)
+
 
 
         
@@ -351,33 +345,114 @@ class NMS_Agent:
         except Exception as e:
             print(f"[DEBUG] Error processing task: {e}")
 
-
-
-    def send_results_to_server(self, seq_number, results, addr, link_metrics):
+    def filter_results(self, results, link_metrics):
         """
-        Send the task results back to the server.
+        Filter the task results to include only the required metrics.
+
+        Args:
+            results (dict): The full results dictionary.
+            link_metrics (dict): The link metrics required by the task.
+
+        Returns:
+            dict: The filtered results dictionary.
+        """
+        filtered_results = {
+            "device_id": results.get("device_id"),
+            "status": results.get("status"),
+            "results": {}
+        }
+
+        # Include CPU usage if present
+        if "cpu_usage" in results.get("results", {}):
+            filtered_results["results"]["cpu_usage"] = results["results"]["cpu_usage"]
+
+        # Include RAM usage if present
+        if "ram_usage" in results.get("results", {}):
+            filtered_results["results"]["ram_usage"] = results["results"]["ram_usage"]
+
+        # Include interface stats if present
+        if "interface_stats" in results.get("results", {}):
+            filtered_results["results"]["interface_stats"] = results["results"]["interface_stats"]
+
+        # Include latency
+        if "latency" in link_metrics:
+            latency = results.get("results", {}).get("latency", {})
+            if latency:
+                filtered_results["results"]["latency"] = latency
+
+        # Include iperf-related metrics based on link_metrics
+        iperf = results.get("results", {}).get("iperf", {})
+        if iperf:
+            iperf_results = iperf.get("results", {})
+            if "packet_loss" in link_metrics:
+                filtered_results["results"]["packet_loss"] = iperf_results.get("packet_loss", "N/A")
+            if "jitter" in link_metrics:
+                filtered_results["results"]["jitter"] = iperf_results.get("jitter", "N/A")
+            if "bandwidth" in link_metrics:
+                transfer = iperf_results.get("transfer", "N/A")
+                bitrate = iperf_results.get("bitrate", "N/A")
+                filtered_results["results"]["bandwidth"] = f"{transfer} transferred, {bitrate} bitrate"
+
+        return filtered_results
+
+
+
+    def send_results_to_server(self, seq_number, results, addr, link_metrics, max_retries=3, ack_timeout=5):
+        """
+        Send the task results back to the server with retransmission logic.
 
         Args:
             seq_number (int): Sequence number of the task.
             results (dict): Task results to send.
             addr (tuple): Server address (IP, port).
             link_metrics (dict): Link metrics required from the task configuration.
+            max_retries (int): Maximum number of retransmission attempts.
+            ack_timeout (int): Timeout in seconds to wait for an ACK.
         """
         try:
-            # Format results on the agent side (only include required link metrics)
-            formatted_results = self.format_task_results(results, link_metrics)
+            # Filter results to include only required metrics
+            filtered_results = self.filter_results(results, link_metrics)
+
+            # Format the filtered results for human readability
+            formatted_results = self.format_task_results(filtered_results, link_metrics)
             print("[DEBUG] Formatted task results (Agent Side):")
             print(formatted_results)
 
-            # Send only the formatted results as a string to the server
+            # Send the formatted results as a string to the server
             message = struct.pack("!4sI", b"TRES", seq_number) + formatted_results.encode('utf-8')
 
-            # Ensure results are sent to the server's listening port (12345)
+            # Server address
             server_address = (self.server_ip, 12345)
-            self.udp_socket.sendto(message, server_address)
-            print(f"[UDP] Sent formatted task results seq {seq_number} to {server_address}")
+
+            # Retransmission loop
+            for attempt in range(1, max_retries + 1):
+                try:
+                    # Send the message to the server
+                    self.udp_socket.sendto(message, server_address)
+                    print(f"[UDP] Attempt {attempt}: Sending formatted results for seq {seq_number} to {server_address}")
+
+                    # Wait for ACK
+                    self.udp_socket.settimeout(ack_timeout)
+                    ack_data, _ = self.udp_socket.recvfrom(1024)  # Buffer size of 1024 bytes
+
+                    # Parse the ACK
+                    ack_header, ack_seq_number = struct.unpack("!4sI", ack_data[:8])
+                    if ack_header == b"TACK" and ack_seq_number == seq_number:
+                        print(f"[UDP] Received ACK for seq {seq_number} from {server_address}")
+                        break  # Stop retransmitting upon successful ACK
+
+                except socket.timeout:
+                    print(f"[UDP] Timeout waiting for ACK for seq {seq_number}")
+                except Exception as e:
+                    print(f"[UDP] Error during ACK processing: {e}")
+            else:
+                # If we exhaust all retries
+                print(f"[UDP] Failed to send results for seq {seq_number} after {max_retries} attempts")
         except Exception as e:
             print(f"[UDP] Error sending results to server: {e}")
+
+
+
 
 
 if __name__ == "__main__":

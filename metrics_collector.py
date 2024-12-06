@@ -134,42 +134,50 @@ class MetricCollector:
 
     def _parse_iperf_output(self, output):
         """
-        Parse raw iperf3 output and extract relevant metrics.
+        Parse the raw iperf output and extract relevant metrics.
 
         Args:
-            output (str): Raw iperf3 output.
+            output (str): The raw output from the iperf command.
 
         Returns:
             dict: Parsed metrics including transfer, bitrate, jitter, and packet loss.
         """
-        metrics = {}
-        try:
-            # Extract transfer and bitrate (from the receiver summary)
-            transfer_match = re.search(r"(\d+\.?\d*)\s([KMGT]?)Bytes\s+(\d+\.?\d*)\s([KMGT]?bits/sec)", output)
-            if transfer_match:
-                metrics["transfer"] = f"{transfer_match.group(1)} {transfer_match.group(2)}Bytes"
-                metrics["bitrate"] = f"{transfer_match.group(3)} {transfer_match.group(4)}"
+        metrics = {
+            "transfer": "N/A",
+            "bitrate": "N/A",
+            "jitter": "N/A",
+            "packet_loss": "N/A"
+        }
 
-            # Extract jitter, lost packets, and total packets (from the receiver summary)
-            summary_match = re.search(
-                r"\s+(\d+\.\d+)\sms\s+(\d+)/(\d+)\s+\(\d+%?\)\s+receiver", output
-            )
-            if summary_match:
-                metrics["jitter"] = f"{summary_match.group(1)} ms"
-                metrics["packet_loss"] = f"{summary_match.group(2)}/{summary_match.group(3)}"
+        try:
+            lines = output.splitlines()
+            print("[DEBUG] Raw iperf output lines:")
+            for line in lines:
+                print(line)
+
+            for line in lines:
+                # Look for "receiver" line with transfer and bitrate
+                if "receiver" in line:
+                    parts = line.split()
+                    if len(parts) >= 8:
+                        metrics["transfer"] = parts[4] + " " + parts[5]  # e.g., "1.20 MBytes"
+                        metrics["bitrate"] = parts[6] + " " + parts[7]   # e.g., "1.00 Mbits/sec"
+                    # Extract "Lost/Total Datagrams" for packet loss
+                    if len(parts) >= 12 and "/" in parts[-3]:
+                        metrics["packet_loss"] = parts[-3]  # e.g., "39/906"
+
+                # Look for jitter
+                if "ms" in line and "/" in line:
+                    parts = line.split()
+                    if len(parts) >= 9:
+                        metrics["jitter"] = parts[8]  # e.g., "0.027"
+
+            print("[DEBUG] Parsed iperf metrics:")
+            print(metrics)
 
         except Exception as e:
-            print(f"[DEBUG] Error parsing iperf3 output: {e}")
-            return {
-                "status": "failure",
-                "error": f"Error parsing iperf3 output: {str(e)}"
-            }
-
-        # Return parsed metrics
-        print(f"[DEBUG] Parsed metrics: {metrics}")
+            print(f"[DEBUG] Error parsing iperf output: {e}")
         return metrics
-
-
 
 
     def _extract_latency(self, ping_output):
