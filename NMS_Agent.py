@@ -132,13 +132,28 @@ class NMS_Agent:
 
             # Collect link metrics selectively
             for metric, params in link_metrics.items():
-                if metric == "latency":
-                    # Run ping for latency
-                    results["results"]["latency"] = metric_collector.ping(
-                        destination=params["destination"],
-                        packet_count=params["packet_count"]
-                                    )
-                                # Run iperf and store the results under "iperf" key
+                # Latency
+                if "latency" in link_metrics:
+                    try:
+                        # Run ping for latency
+                        latency_params = link_metrics["latency"]
+                        latency_result = metric_collector.ping(
+                            destination=latency_params["destination"],
+                            packet_count=latency_params["packet_count"]
+                        )
+                        results["results"]["latency"] = latency_result  # Store the full result
+                    except Exception as e:
+                        print(f"[DEBUG] Error collecting latency: {e}")
+                        results["results"]["latency"] = {
+                            "status": "failure",
+                            "error": str(e)
+                        }
+                else:
+                    print("[DEBUG] Latency metric not required for this task.")
+
+                
+
+                # Run iperf and store the results under "iperf" key
                 if metric in ["packet_loss", "bandwidth", "jitter"]:
                     try:
                         # Ensure params is properly initialized and protocol is assigned
@@ -274,12 +289,18 @@ class NMS_Agent:
         else:
             formatted_output.append("  Network Interfaces: Failed to collect data")
 
+        
         # Latency
         latency = results.get("results", {}).get("latency", {})
-        if isinstance(latency, dict) and latency.get("status") == "success":
-            formatted_output.append(f"  Latency: {latency.get('latency')} ms")
+        if "latency" in link_metrics:
+            if isinstance(latency, dict) and latency.get("status") == "success":
+                latency_value = latency.get("latency", "N/A")
+                formatted_output.append(f"  Latency: {latency_value} ms")
+            elif latency.get("status") == "failure":
+                formatted_output.append("  Latency: Failed to collect data")
         else:
-            formatted_output.append("  Latency: Failed to collect data")
+            print("[DEBUG] Latency metric not in link_metrics; skipping display.")
+
 
         # Iperf Results (Include Only Required Metrics)
         iperf_results = results.get("results", {}).get("iperf", {})
@@ -302,8 +323,7 @@ class NMS_Agent:
         return "\n".join(formatted_output)
 
 
-
-    
+        
     def process_task(self, data, addr):
         """
         Process a task received from the server.

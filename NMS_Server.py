@@ -310,10 +310,7 @@ class NMS_Server:
             self.handle_agent_registration(client_address, agent_id)
         except Exception as e:
             print(f"[UDP] Error handling ACK: {e}")
-
-    
-
-    
+ 
     
     def handle_task_result(self, data, addr):
         """
