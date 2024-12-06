@@ -85,7 +85,7 @@ class MetricCollector:
             return {"error": str(e), "status": "failure"}
 
 
-    def iperf(self, server, role="client", duration=10, protocol="tcp"):
+    def iperf(self, server, role="client", duration=10, protocol="tcp", port=None):
         """
         Run iperf3 and collect results.
 
@@ -94,23 +94,37 @@ class MetricCollector:
             role (str): The role of the iperf3 instance ('client' or 'server').
             duration (int): Duration of the iperf3 test in seconds.
             protocol (str): Protocol to use ('tcp' or 'udp').
+            port (int): The port to use for the iperf3 test.
 
         Returns:
             dict: Parsed iperf3 results or an error message.
         """
-        command = ["iperf3", f"--{role}", server, "--time", str(duration), "--format", "m"]
+        if port is None:
+            raise ValueError("[DEBUG] Port must be specified in the task configuration")
+
+        # Build the iperf3 command
+        command = [
+            "iperf3",
+            f"--{role}", server,
+            "--port", str(port),        # Dynamically use the provided port
+            "--time", str(duration),
+            "--format", "m"
+        ]
         if protocol == "udp":
             command.append("--udp")  # Add --udp flag for UDP tests
 
         print(f"[DEBUG] Running command: {' '.join(command)}")
 
         try:
+            # Run the iperf3 command
             result = subprocess.run(
                 command,
                 capture_output=True,
                 text=True,
                 timeout=duration + 5
             )
+
+            # Check the command result
             if result.returncode == 0:
                 print(f"[DEBUG] Raw iperf output:\n{result.stdout}")
                 parsed_results = self._parse_iperf_output(result.stdout)
@@ -131,6 +145,7 @@ class MetricCollector:
                 "status": "failure",
                 "error": str(e)
             }
+
 
     def _parse_iperf_output(self, output):
         """

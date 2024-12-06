@@ -6,6 +6,41 @@ import struct
 import json
 from task_parser import TaskJSONParser
 
+class Iperf3Manager:
+    def __init__(self):
+        self.iperf3_servers = {}
+
+    def start_server(self, port):
+        if port in self.iperf3_servers:
+            print(f"[iperf3] Server already running on port {port}")
+            return
+        
+        try:
+            print(f"[iperf3] Starting iperf3 server on port {port}...")
+            process = subprocess.Popen(
+                ["iperf3", "--server", "--port", str(port)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            self.iperf3_servers[port] = process
+            print(f"[iperf3] Server started successfully on port {port}.")
+        except Exception as e:
+            print(f"[iperf3] Failed to start server on port {port}: {e}")
+
+    def stop_server(self, port):
+        if port in self.iperf3_servers:
+            print(f"[iperf3] Stopping server on port {port}...")
+            self.iperf3_servers[port].terminate()
+            self.iperf3_servers[port].wait()
+            del self.iperf3_servers[port]
+            print(f"[iperf3] Server stopped on port {port}.")
+        else:
+            print(f"[iperf3] No server running on port {port}.")
+
+    def stop_all_servers(self):
+        for port in list(self.iperf3_servers.keys()):
+            self.stop_server(port)
+
 
 class NMS_Server:
     
@@ -16,24 +51,37 @@ class NMS_Server:
         self.tasks = {}
         self.sequence_numbers = {}  # Track sequence numbers per agent
         self.iperf3_process = None  # Track the iperf3 server process
+        # Start the iperf3 server on port 5201
+        self.start_iperf3_server(port=5201)
+        self.start_iperf3_server(port=5202)
+        self.start_iperf3_server(port=5203)
+
+                
 
 
-    def start_iperf3_server(self):
+    def start_iperf3_server(self, port=5201):
         """
-        Start the iperf3 server in the background with support for UDP.
+        Start the iperf3 server on a specific port in the background with support for UDP.
+
+        Args:
+            port (int): The port number on which the iperf3 server will listen.
         """
         try:
-            print("[iperf3] Starting iperf3 server with UDP support...")
+            print(f"[iperf3] Starting iperf3 server on port {port} with UDP support...")
+            
+            # Start iperf3 server with the specified port
             self.iperf3_process = subprocess.Popen(
-                ["iperf3", "--server"],
+                ["iperf3", "--server", "--port", str(port)],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
-            print("[iperf3] iperf3 server started successfully with UDP support.")
+            
+            print(f"[iperf3] iperf3 server started successfully on port {port} with UDP support.")
         except FileNotFoundError:
             print("[iperf3] Error: iperf3 is not installed or not in PATH.")
         except Exception as e:
             print(f"[iperf3] Failed to start iperf3 server: {e}")
+
 
 
     def stop_iperf3_server(self):
@@ -150,6 +198,9 @@ class NMS_Server:
                     print(f"[UDP] Error processing data: {e}")
         except Exception as e:
             print(f"[UDP] Server error: {e}")
+        except KeyboardInterrupt:
+            print("[SERVER] Stopping server gracefully...")
+            server.stop_all_servers()
         finally:
             self.udp_socket.close()
             

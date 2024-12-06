@@ -158,14 +158,17 @@ class NMS_Agent:
                     try:
                         # Ensure params is properly initialized and protocol is assigned
                         protocol = params.get("transport_type", "UDP").lower()
-
+                        port = params.get("port")
                         if not iperf_results_cache:
+                            
                             print(f"[DEBUG] Running iperf for link metrics with protocol: {protocol}...")
                             iperf_results = metric_collector.iperf(
                                 server=params["server_address"],
                                 role=params["role"],
                                 duration=params["duration"],
-                                protocol=protocol
+                                protocol=protocol,
+                                port = port
+                                
                             )
                             print(f"[DEBUG] Iperf results: {iperf_results}")
                             if iperf_results.get("status") == "success":
