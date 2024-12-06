@@ -31,7 +31,7 @@ class NMS_Agent:
         self.ip = "0.0.0.0"  # Bind to all available interfaces
         self.port = 12345    # Fixed port for sending and receiving
         self.udp_socket.bind((self.ip, self.port))
-
+        self.alert_counts = {}
         # Set a timeout for the socket (e.g., 5 seconds)
         self.udp_socket.settimeout(5)
 
@@ -201,32 +201,30 @@ class NMS_Agent:
         return results
 
     def execute_task_periodically(self, task, seq_number, addr):
-        """
-        Execute a task periodically based on the frequency passed by the server.
-
-        Args:
-            task (dict): The task details.
-            seq_number (int): The sequence number of the task.
-            addr (tuple): The server address.
-        """
-        frequency = task.get("frequency") or 20  # Default to 20 seconds if missing or invalid
+        frequency = task.get("frequency") or 20
         device_id = task.get("device_id")
         metric_collector = MetricCollector()
-
-        # Extract the required link metrics from the task
         link_metrics = task.get("link_metrics", {})
+        alertflow_conditions = task.get("link_metrics", {}).get("alertflow_conditions", {})
 
         print(f"[UDP] Starting periodic execution for device: {device_id}, frequency: {frequency} seconds")
 
         try:
             while True:
-                # Execute the task (iperf is handled internally in execute_task)
-                results = self.execute_task(task, metric_collector)
+                # Check if alert threshold is reached
+                if self.alert_counts.get(device_id, 0) >= 2:
+                    print(f"[DEBUG] Alert threshold reached for {device_id}. Stopping task execution.")
+                    break
 
-                # Send the formatted task results back to the server
+                # Execute the task
+                results = self.execute_task(task, metric_collector)
                 self.send_results_to_server(seq_number, results, addr, link_metrics)
 
-                # Wait for the next execution
+                # Check alert conditions and send alerts if needed
+                exceeded_metrics = self.check_alert_conditions(results, alertflow_conditions)
+                if exceeded_metrics:
+                    self.send_alert_to_server(exceeded_metrics, device_id)
+
                 print(f"[UDP] Waiting {frequency} seconds before the next execution...")
                 time.sleep(frequency)
 
@@ -234,6 +232,8 @@ class NMS_Agent:
             print(f"[UDP] Stopping periodic execution for device: {device_id}")
         except Exception as e:
             print(f"[DEBUG] Error during periodic execution for {device_id}: {e}")
+
+
 
     def format_task_results(self, results, link_metrics):
         """
@@ -452,6 +452,91 @@ class NMS_Agent:
             print(f"[UDP] Error sending results to server: {e}")
 
 
+    def check_alert_conditions(self, results, alertflow_conditions):
+        """
+        Check if the task results exceed the alertflow_conditions.
+
+        Args:
+            results (dict): Task results from the metrics.
+            alertflow_conditions (dict): Alert thresholds defined in the task.
+
+        Returns:
+            list: A list of exceeded metrics. Empty if no alerts.
+        """
+        exceeded_metrics = []
+
+        # Check CPU usage
+        if "cpu_usage" in alertflow_conditions:
+            cpu_result = results.get("results", {}).get("cpu_usage", {})
+            if cpu_result.get("status") == "success":
+                cpu_value = float(cpu_result.get("cpu_usage", "0%").strip('%'))
+                if cpu_value > alertflow_conditions["cpu_usage"]:
+                    exceeded_metrics.append(f"CPU Usage: {cpu_value}% > {alertflow_conditions['cpu_usage']}%")
+
+        # Check RAM usage
+        if "ram_usage" in alertflow_conditions:
+            ram_result = results.get("results", {}).get("ram_usage", {})
+            if ram_result.get("status") == "success":
+                ram_value = float(ram_result.get("ram_usage", "0%").strip('%'))
+                if ram_value > alertflow_conditions["ram_usage"]:
+                    exceeded_metrics.append(f"RAM Usage: {ram_value}% > {alertflow_conditions['ram_usage']}%")
+
+        # Check Interface stats
+        if "interface_stats" in alertflow_conditions:
+            interface_result = results.get("results", {}).get("interface_stats", {})
+            if interface_result.get("status") == "success":
+                for iface, stats in interface_result.get("interface_stats", {}).items():
+                    if stats.get("status") != "failure":
+                        total_packets = stats.get("total_packets", 0)
+                        if total_packets > alertflow_conditions["interface_stats"]:
+                            exceeded_metrics.append(f"Interface {iface}: {total_packets} packets > {alertflow_conditions['interface_stats']} packets")
+
+        # Check Packet Loss
+        if "packet_loss" in alertflow_conditions:
+            packet_loss = results.get("results", {}).get("packet_loss", "N/A")
+            if packet_loss != "N/A" and "/" in packet_loss:
+                lost, total = map(int, packet_loss.split("/"))
+                loss_percentage = (lost / total) * 100 if total > 0 else 0
+                if loss_percentage > alertflow_conditions["packet_loss"]:
+                    exceeded_metrics.append(f"Packet Loss: {loss_percentage:.2f}% > {alertflow_conditions['packet_loss']}%")
+
+        # Check Jitter
+        if "jitter" in alertflow_conditions:
+            jitter = results.get("results", {}).get("jitter", "N/A")
+            if jitter != "N/A":
+                jitter_value = float(jitter.strip(' ms'))
+                if jitter_value > alertflow_conditions["jitter"]:
+                    exceeded_metrics.append(f"Jitter: {jitter_value} ms > {alertflow_conditions['jitter']} ms")
+
+        return exceeded_metrics
+
+    def send_alert_to_server(self, exceeded_metrics, device_id):
+        """
+        Send an alert to the server using TCP.
+
+        Args:
+            exceeded_metrics (list): List of exceeded metrics to send in the alert.
+            device_id (str): The ID of the device sending the alert.
+        """
+        alert_message = {
+            "agent_id": self.agent_id,
+            "device_id": device_id,
+            "exceeded_metrics": exceeded_metrics
+        }
+        alert_data = json.dumps(alert_message).encode('utf-8')
+
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp_socket:
+                tcp_socket.connect((self.server_ip, self.server_port))
+                tcp_socket.sendall(alert_data)
+                print(f"[TCP] Alert sent to server: {alert_message}")
+
+            # Increment alert count for this device
+            self.alert_counts[device_id] = self.alert_counts.get(device_id, 0) + 1
+            print(f"[DEBUG] Alert count for {device_id}: {self.alert_counts[device_id]}")
+
+        except Exception as e:
+            print(f"[TCP] Error sending alert to server: {e}")
 
 
 

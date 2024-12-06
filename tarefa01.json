@@ -31,7 +31,7 @@
                     "alertflow_conditions": {
                         "cpu_usage": 80,
                         "ram_usage": 90,
-                        "interface_stats": 2000,
+                        "interface_stats": 9000000000,
                         "packet_loss": 5,
                         "jitter": 100
                     }
@@ -62,8 +62,8 @@
                     },
                     "alertflow_conditions": {
                         "cpu_usage": 85,
-                        "ram_usage": 92,
-                        "interface_stats": 2500,
+                        "ram_usage": 55,
+                        "interface_stats": 250000000,
                         "packet_loss": 7,
                         "jitter": 120
                     }
@@ -93,8 +93,8 @@
                         "frequency": 20
                     },
                     "alertflow_conditions": {
-                        "cpu_usage": 90,
-                        "interface_stats": 3000
+                        "cpu_usage": 90
+                        
                         
                         
                     }

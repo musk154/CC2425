@@ -150,6 +150,21 @@ class NMS_Server:
             print(f"[UDP] Server error: {e}")
         finally:
             self.udp_socket.close()
+            
+    def start_tcp_server(self):
+        """
+        Start a TCP server to handle alerts from agents.
+        """
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp_socket:
+            tcp_socket.bind((self.ip, self.port))
+            tcp_socket.listen(5)  # Allow up to 5 simultaneous connections
+            print(f"[TCP] Server listening for alerts on {self.ip}:{self.port}...")
+
+            while True:
+                conn, addr = tcp_socket.accept()
+                print(f"[TCP] Connection established with {addr}")
+                threading.Thread(target=self.handle_alert, args=(conn, addr), daemon=True).start()
+
 
     def send_task_to_agent(self, agent_id):
         """
@@ -274,16 +289,34 @@ class NMS_Server:
         """
         
         # Implement storage logic (e.g., save to a file, database, etc.)
+    def handle_alert(self, conn, addr):
+        """
+        Handle an incoming alert from an agent.
+
+        Args:
+            conn: The TCP connection object.
+            addr: Address of the agent sending the alert.
+        """
+        try:
+            alert_data = conn.recv(4096).decode('utf-8')
+            alert_message = json.loads(alert_data)
+            print(f"[TCP] Received alert from {alert_message['agent_id']} at {addr}:")
+            for metric in alert_message['exceeded_metrics']:
+                print(f"  - {metric}")
+        except Exception as e:
+            print(f"[TCP] Error handling alert from {addr}: {e}")
 
 
     #Starting the actual server side
     def start_servers(self):
-        """
-        Start UDP server in a separate thread.
-        """
+        
         udp_thread = threading.Thread(target=self.start_udp_server, daemon=True)
+        tcp_thread = threading.Thread(target=self.start_tcp_server, daemon=True)
         udp_thread.start()
+        tcp_thread.start()
         udp_thread.join()
+        tcp_thread.join()
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
