@@ -8,7 +8,7 @@ class TaskJSONParser:
         """
         self.file_path = file_path
         self.data = self._load_json()
-        self.global_frequency = self.data.get("frequency", 20)  # Default to 20 seconds
+        self.global_frequency = self.data.get("task", {}).get("frequency", 20)  # Default to 20 seconds
 
     def _load_json(self):
         """

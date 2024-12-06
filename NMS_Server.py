@@ -61,9 +61,11 @@ class NMS_Server:
         try:
             print("Loading tasks from parser...")
             self.tasks = {}
+            self.global_frequency = parser.global_frequency
 
             for device in parser.get_devices():
                 # Update server_address and destination dynamically
+                
                 link_metrics = device.get("link_metrics", {})
                 for metric_name, metric in link_metrics.items():
                     if isinstance(metric, dict):
@@ -171,6 +173,9 @@ class NMS_Server:
         Send tasks to an agent and include the global frequency.
         """
         agent = self.registered_agents.get(agent_id)
+        
+        
+
         if agent and agent_id in self.tasks:
             try:
                 tasks_to_send = self.tasks[agent_id]
@@ -189,6 +194,9 @@ class NMS_Server:
                     # Ensure seq_number is within the valid 32-bit unsigned integer range
                     seq_number = seq_number & 0xFFFFFFFF
 
+                    # Add global frequency to the task if not already defined
+                    task["frequency"] = task.get("frequency", self.global_frequency)
+
                     # Encode the task into binary
                     task_binary = json.dumps(task).encode('utf-8')
                     task_length = len(task_binary)
@@ -201,7 +209,7 @@ class NMS_Server:
                         try:
                             # Send the task
                             print(f"[UDP] Attempting to send task. Destination: {client_address}")
-                            print(f"[DEBUG] Task being sent to {agent_id}: {task}")
+                            print(f"[DEBUG] Task being sent to {agent_id} (frequency: {task['frequency']}): {task}")
                             
                             udp_socket.sendto(message, client_address)
 
@@ -222,7 +230,7 @@ class NMS_Server:
                         
                         except socket.timeout:
                             print(f"[UDP] Timeout waiting for ACK for seq {seq_number}")
-                    
+                        
                     else:
                         print(f"[UDP] Failed to send task seq {seq_number} after {max_retries} attempts")
                         continue
@@ -231,6 +239,7 @@ class NMS_Server:
 
             except Exception as e:
                 print(f"[UDP] Error in send_task_to_agent: {e}")
+
 
 
 

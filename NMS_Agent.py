@@ -200,8 +200,8 @@ class NMS_Agent:
 
         return results
 
-    def execute_task_periodically(self, task, seq_number, addr):
-        frequency = task.get("frequency") or 20
+    def execute_task_periodically(self, task, seq_number, addr, frequency):
+        
         device_id = task.get("device_id")
         metric_collector = MetricCollector()
         link_metrics = task.get("link_metrics", {})
@@ -317,7 +317,6 @@ class NMS_Agent:
 
 
 
-        
     def process_task(self, data, addr):
         """
         Process a task received from the server.
@@ -330,13 +329,15 @@ class NMS_Agent:
             # Extract the task binary data and decode it into a JSON object
             task_binary = data[8:8 + task_length]
             task = json.loads(task_binary.decode('utf-8'))
+            global_frequency = task.get("frequency", 20)  # Default to 20 seconds
+            
             print(f"[UDP] Received task seq {seq_number}: {task}")
 
             # Send task acknowledgment back to the server
             self.send_task_ack(seq_number, addr)
 
             # Start periodic execution of the task
-            self.execute_task_periodically(task, seq_number, addr)
+            self.execute_task_periodically(task, seq_number, addr, global_frequency)
 
         except struct.error as e:
             print(f"[DEBUG] Struct unpacking error: {e}")
@@ -344,6 +345,7 @@ class NMS_Agent:
             print(f"[DEBUG] JSON decoding error: {e}")
         except Exception as e:
             print(f"[DEBUG] Error processing task: {e}")
+
 
     def filter_results(self, results, link_metrics):
         """
