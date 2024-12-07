@@ -1,6 +1,5 @@
 import subprocess
 import psutil
-import re
 
 class MetricCollector:
     

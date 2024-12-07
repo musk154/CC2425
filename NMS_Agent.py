@@ -3,6 +3,7 @@ import sys
 import struct
 import json
 import time
+import datetime
 from metrics_collector import MetricCollector
 
 class NMS_Agent:
@@ -204,7 +205,15 @@ class NMS_Agent:
         return results
 
     def execute_task_periodically(self, task, seq_number, addr, frequency):
-        
+        """
+        Periodically execute a task based on the given frequency.
+
+        Args:
+            task (dict): The task details.
+            seq_number (int): The sequence number received from the server.
+            addr (tuple): The server's address (IP, port).
+            frequency (int): The frequency (in seconds) at which to execute the task.
+        """
         device_id = task.get("device_id")
         metric_collector = MetricCollector()
         link_metrics = task.get("link_metrics", {})
@@ -221,12 +230,17 @@ class NMS_Agent:
 
                 # Execute the task
                 results = self.execute_task(task, metric_collector)
+
+                # Send the results to the server with the current sequence number
                 self.send_results_to_server(seq_number, results, addr, link_metrics)
 
                 # Check alert conditions and send alerts if needed
                 exceeded_metrics = self.check_alert_conditions(results, alertflow_conditions)
                 if exceeded_metrics:
                     self.send_alert_to_server(exceeded_metrics, device_id)
+
+                # Increment the sequence number for the next iteration
+                seq_number += 1
 
                 print(f"[UDP] Waiting {frequency} seconds before the next execution...")
                 time.sleep(frequency)
@@ -418,12 +432,15 @@ class NMS_Agent:
             # Filter results to include only required metrics
             filtered_results = self.filter_results(results, link_metrics)
 
+            # Add the sequence number to the filtered results
+            filtered_results["sequence_number"] = seq_number  # Embed seq_number in the data
+
             # Format the filtered results for human readability
             formatted_results = self.format_task_results(filtered_results, link_metrics)
             print("[DEBUG] Formatted task results (Agent Side):")
             print(formatted_results)
 
-            # Send the formatted results as a string to the server
+            # Serialize the results for transmission
             message = struct.pack("!4sI", b"TRES", seq_number) + formatted_results.encode('utf-8')
 
             # Server address
@@ -455,6 +472,8 @@ class NMS_Agent:
                 print(f"[UDP] Failed to send results for seq {seq_number} after {max_retries} attempts")
         except Exception as e:
             print(f"[UDP] Error sending results to server: {e}")
+
+
 
 
     def check_alert_conditions(self, results, alertflow_conditions):
