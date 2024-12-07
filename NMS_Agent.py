@@ -3,7 +3,6 @@ import sys
 import struct
 import json
 import time
-import datetime
 from metrics_collector import MetricCollector
 
 class NMS_Agent:
@@ -64,12 +63,11 @@ class NMS_Agent:
             try:
                 # Receive data and the sender's address
                 data, addr = self.udp_socket.recvfrom(4096)  # Use recvfrom to get the sender's address
-                print(f"[DEBUG] Raw data received from {addr}: {data}")
-                print(f"[DEBUG] Data length: {len(data)} bytes")
+                
 
                 # Ensure the packet is large enough to contain at least the sequence number and task length
                 if len(data) < 8:
-                    print(f"[UDP] Received a non-task message: {data}")
+                    
                     continue  # Skip processing this message
 
                 # Decode and process the task
@@ -149,8 +147,7 @@ class NMS_Agent:
                             "status": "failure",
                             "error": str(e)
                         }
-                else:
-                    print("[DEBUG] Latency metric not required for this task.")
+                
 
                 
 
@@ -162,7 +159,7 @@ class NMS_Agent:
                         port = params.get("port")
                         if not iperf_results_cache:
                             
-                            print(f"[DEBUG] Running iperf for link metrics with protocol: {protocol}...")
+                            
                             iperf_results = metric_collector.iperf(
                                 server=params["server_address"],
                                 role=params["role"],
@@ -171,7 +168,7 @@ class NMS_Agent:
                                 port = port
                                 
                             )
-                            print(f"[DEBUG] Iperf results: {iperf_results}")
+                            
                             if iperf_results.get("status") == "success":
                                 # Cache the full iperf results for this task execution
                                 iperf_results_cache = iperf_results.get("results", {})
@@ -341,14 +338,14 @@ class NMS_Agent:
         try:
             # Decode the sequence number and task length from the first 8 bytes
             seq_number, task_length = struct.unpack("!I I", data[:8])
-            print(f"[DEBUG] Decoded seq_number: {seq_number}, task_length: {task_length}")
+            
 
             # Extract the task binary data and decode it into a JSON object
             task_binary = data[8:8 + task_length]
             task = json.loads(task_binary.decode('utf-8'))
             global_frequency = task.get("frequency", 20)  # Default to 20 seconds
             
-            print(f"[UDP] Received task seq {seq_number}: {task}")
+            print(f"[UDP] Received task seq {seq_number}")
 
             # Send task acknowledgment back to the server
             self.send_task_ack(seq_number, addr)
@@ -437,7 +434,7 @@ class NMS_Agent:
 
             # Format the filtered results for human readability
             formatted_results = self.format_task_results(filtered_results, link_metrics)
-            print("[DEBUG] Formatted task results (Agent Side):")
+            print("Task results:")
             print(formatted_results)
 
             # Serialize the results for transmission
@@ -451,7 +448,7 @@ class NMS_Agent:
                 try:
                     # Send the message to the server
                     self.udp_socket.sendto(message, server_address)
-                    print(f"[UDP] Attempt {attempt}: Sending formatted results for seq {seq_number} to {server_address}")
+                    print(f"[UDP] Attempt {attempt}: Sending task results for seq {seq_number} to {server_address}")
 
                     # Wait for ACK
                     self.udp_socket.settimeout(ack_timeout)
@@ -472,8 +469,6 @@ class NMS_Agent:
                 print(f"[UDP] Failed to send results for seq {seq_number} after {max_retries} attempts")
         except Exception as e:
             print(f"[UDP] Error sending results to server: {e}")
-
-
 
 
     def check_alert_conditions(self, results, alertflow_conditions):
@@ -557,11 +552,10 @@ class NMS_Agent:
 
             # Increment alert count for this device
             self.alert_counts[device_id] = self.alert_counts.get(device_id, 0) + 1
-            print(f"[DEBUG] Alert count for {device_id}: {self.alert_counts[device_id]}")
+            print(f"Alert count for {device_id}: {self.alert_counts[device_id]}")
 
         except Exception as e:
             print(f"[TCP] Error sending alert to server: {e}")
-
 
 
 if __name__ == "__main__":

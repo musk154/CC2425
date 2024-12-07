@@ -112,7 +112,7 @@ class MetricCollector:
         if protocol == "udp":
             command.append("--udp")  # Add --udp flag for UDP tests
 
-        print(f"[DEBUG] Running command: {' '.join(command)}")
+        print(f"Running iperf...")
 
         try:
             # Run the iperf3 command
@@ -125,9 +125,9 @@ class MetricCollector:
 
             # Check the command result
             if result.returncode == 0:
-                print(f"[DEBUG] Raw iperf output:\n{result.stdout}")
+                
                 parsed_results = self._parse_iperf_output(result.stdout)
-                print(f"[DEBUG] Parsed iperf results: {parsed_results}")
+                
                 return {
                     "status": "success",
                     "results": parsed_results
@@ -165,10 +165,7 @@ class MetricCollector:
 
         try:
             lines = output.splitlines()
-            print("[DEBUG] Raw iperf output lines:")
-            for line in lines:
-                print(line)
-
+            
             for line in lines:
                 # Look for "receiver" line with transfer and bitrate
                 if "receiver" in line:
@@ -186,8 +183,7 @@ class MetricCollector:
                     if len(parts) >= 9:
                         metrics["jitter"] = parts[8]  # e.g., "0.027"
 
-            print("[DEBUG] Parsed iperf metrics:")
-            print(metrics)
+            
 
         except Exception as e:
             print(f"[DEBUG] Error parsing iperf output: {e}")

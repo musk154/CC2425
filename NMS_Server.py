@@ -7,41 +7,6 @@ import json
 import os
 from task_parser import TaskJSONParser
 
-class Iperf3Manager:
-    def __init__(self):
-        self.iperf3_servers = {}
-
-    def start_server(self, port):
-        if port in self.iperf3_servers:
-            print(f"[iperf3] Server already running on port {port}")
-            return
-        
-        try:
-            print(f"[iperf3] Starting iperf3 server on port {port}...")
-            process = subprocess.Popen(
-                ["iperf3", "--server", "--port", str(port)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-            self.iperf3_servers[port] = process
-            print(f"[iperf3] Server started successfully on port {port}.")
-        except Exception as e:
-            print(f"[iperf3] Failed to start server on port {port}: {e}")
-
-    def stop_server(self, port):
-        if port in self.iperf3_servers:
-            print(f"[iperf3] Stopping server on port {port}...")
-            self.iperf3_servers[port].terminate()
-            self.iperf3_servers[port].wait()
-            del self.iperf3_servers[port]
-            print(f"[iperf3] Server stopped on port {port}.")
-        else:
-            print(f"[iperf3] No server running on port {port}.")
-
-    def stop_all_servers(self):
-        for port in list(self.iperf3_servers.keys()):
-            self.stop_server(port)
-
 
 class NMS_Server:
     
@@ -68,7 +33,7 @@ class NMS_Server:
             port (int): The port number on which the iperf3 server will listen.
         """
         try:
-            print(f"[iperf3] Starting iperf3 server on port {port} with UDP support...")
+            
             
             # Start iperf3 server with the specified port
             self.iperf3_process = subprocess.Popen(
@@ -77,7 +42,7 @@ class NMS_Server:
                 stderr=subprocess.DEVNULL
             )
             
-            print(f"[iperf3] iperf3 server started successfully on port {port} with UDP support.")
+            
         except FileNotFoundError:
             print("[iperf3] Error: iperf3 is not installed or not in PATH.")
         except Exception as e:
@@ -130,7 +95,7 @@ class NMS_Server:
                         self.tasks[assigned_to] = []
                     self.tasks[assigned_to].append(device)
 
-            print(f"Tasks loaded successfully: {self.tasks}")
+            
         except Exception as e:
             print(f"Error loading tasks: {e}")
 
@@ -158,7 +123,7 @@ class NMS_Server:
             # Pack task count as a 32-bit unsigned integer
             response = struct.pack("!I", task_count)
             udp_socket.sendto(response, client_address)
-            print(f"[UDP] Task count {task_count} sent to agent {agent_id}")
+            
 
             # Send the actual tasks to the agent
             self.send_task_to_agent(agent_id)
@@ -185,7 +150,7 @@ class NMS_Server:
                 try:
                     # Decode the message type
                     message_type = data[:4].decode('utf-8').strip('\x00')
-                    print(f"[DEBUG] Message type: {message_type}")
+                    
                     if message_type == "ACK":
                         self.handle_ack(data, client_address)
                     elif message_type == "TASK":
@@ -335,8 +300,8 @@ class NMS_Server:
                 return
 
             # Log the sequence number and results
-            print(f"[DEBUG] Task results received for agent: {agent_id}, seq: {seq_number}")
-            print(f"[DEBUG] Current sequence number for {agent_id}: {self.sequence_numbers[agent_id]}")
+            print(f"Task results received for agent: {agent_id}, seq: {seq_number}")
+            
 
             # Store the results
             self.store_results(agent_id, seq_number, formatted_results)
@@ -373,7 +338,7 @@ class NMS_Server:
                 file.write(f"Results:\n{result_data}\n")
                 file.write("=" * 50 + "\n")
             
-            print(f"[DEBUG] Results for agent {agent_id}, seq {seq_number} stored successfully in {filename}")
+            print(f"Results for agent {agent_id}, seq {seq_number} stored successfully in {filename}")
         except Exception as e:
             print(f"[DEBUG] Error storing results for agent {agent_id}, seq {seq_number}: {e}")
 
